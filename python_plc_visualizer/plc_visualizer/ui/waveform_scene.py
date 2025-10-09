@@ -1,0 +1,206 @@
+"""Graphics scene for waveform visualization."""
+
+from datetime import datetime
+
+from PyQt6.QtWidgets import QGraphicsScene
+from PyQt6.QtCore import QRectF
+
+from plc_visualizer.models import ParsedLog
+from plc_visualizer.utils import SignalData, process_signals_for_waveform
+from .time_axis_item import TimeAxisItem
+from .signal_item import SignalItem
+from .signal_label_item import SignalLabelItem
+from .grid_lines_item import GridLinesItem
+
+
+class WaveformScene(QGraphicsScene):
+    """Graphics scene containing the waveform visualization."""
+
+    TIME_AXIS_HEIGHT = 30.0
+    SIGNAL_HEIGHT = 60.0  # Increased from 40.0 for better visibility
+    LABEL_WIDTH = 180.0  # Width of signal label column
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.parsed_log = None
+        self.signal_items = []  # Waveform items only
+        self.label_items = []  # Signal label items
+        self.time_axis = None
+        self.grid_lines = None
+        self.signal_data_map: dict[str, SignalData] = {}
+        self.all_signal_names: list[str] = []
+        self.visible_signal_names: list[str] = []
+
+        # Scene dimensions
+        self.scene_width = 1000.0
+        self.scene_height = 100.0
+
+        # Current visible time range (for viewport culling)
+        self.visible_time_range = None
+
+        self.setBackgroundBrush(self.palette().window())
+
+    def set_data(
+        self,
+        parsed_log: ParsedLog,
+        signal_data_list: list[SignalData] | None = None
+    ):
+        """Set the parsed log data and render waveforms.
+
+        Args:
+            parsed_log: ParsedLog containing entries to visualize
+        """
+        self.parsed_log = parsed_log
+        self.visible_time_range = parsed_log.time_range if parsed_log else None
+
+        # Reset collections
+        self.signal_items.clear()
+        self.label_items.clear()
+        self.signal_data_map.clear()
+        self.all_signal_names.clear()
+        self.visible_signal_names.clear()
+
+        if not parsed_log or not parsed_log.time_range:
+            self.clear()
+            self.setSceneRect(0, 0, self.scene_width, self.TIME_AXIS_HEIGHT)
+            return
+
+        if signal_data_list is None:
+            signal_data_list = process_signals_for_waveform(parsed_log)
+
+        self.signal_data_map = {signal.key: signal for signal in signal_data_list}
+        self.all_signal_names = [signal.key for signal in signal_data_list]
+        self.visible_signal_names = list(self.all_signal_names)
+
+        self._build_scene()
+
+    def update_width(self, width: float):
+        """Update the scene width and redraw all items.
+
+        Args:
+            width: New width in pixels
+        """
+        self.scene_width = max(width, 500.0)  # Minimum width
+        waveform_width = max(self.scene_width - self.LABEL_WIDTH, 100.0)
+
+        # Update grid lines
+        if self.grid_lines:
+            self.grid_lines.update_dimensions(self.scene_width, self.scene_height)
+
+        # Update time axis
+        if self.time_axis:
+            self.time_axis.update_width(self.scene_width)
+
+        # Update all signal waveform items (not labels - they're fixed width)
+        for signal_item in self.signal_items:
+            signal_item.update_width(waveform_width)
+
+        # Update scene rect
+        self.setSceneRect(0, 0, self.scene_width, self.scene_height)
+
+    def get_signal_count(self) -> int:
+        """Get the number of signals displayed."""
+        return len(self.signal_items)
+
+    def set_time_range(self, start: datetime, end: datetime):
+        """Update the visible time range for viewport culling.
+
+        Args:
+            start: Visible start time
+            end: Visible end time
+        """
+        self.visible_time_range = (start, end)
+
+        # Update time axis
+        if self.time_axis:
+            self.time_axis.set_time_range(start, end)
+
+        # Update grid lines
+        if self.grid_lines:
+            self.grid_lines.set_time_range(start, end)
+
+        # Update all signal items
+        for signal_item in self.signal_items:
+            signal_item.set_time_range(start, end)
+
+    def set_visible_signals(self, signal_names: list[str]):
+        """Update which signals are visible and rebuild the scene."""
+        if not self.signal_data_map:
+            return
+
+        if not signal_names:
+            self.visible_signal_names = []
+        else:
+            desired = set(signal_names)
+            self.visible_signal_names = [
+                name for name in self.all_signal_names if name in desired
+            ]
+
+        self._build_scene()
+
+    def _build_scene(self):
+        """Rebuild the scene using the current visible signals."""
+        self.clear()
+        self.signal_items.clear()
+        self.label_items.clear()
+        self.time_axis = None
+        self.grid_lines = None
+
+        if not self.parsed_log or not self.parsed_log.time_range:
+            self.setSceneRect(0, 0, self.scene_width, self.TIME_AXIS_HEIGHT)
+            return
+
+        render_range = self.visible_time_range or self.parsed_log.time_range
+        num_signals = len(self.visible_signal_names)
+        self.scene_height = self.TIME_AXIS_HEIGHT + (num_signals * self.SIGNAL_HEIGHT)
+        self.scene_height = max(self.scene_height, self.TIME_AXIS_HEIGHT + 10.0)
+
+        waveform_width = max(self.scene_width - self.LABEL_WIDTH, 100.0)
+
+        # Grid lines behind everything
+        self.grid_lines = GridLinesItem(
+            render_range,
+            self.scene_width,
+            self.scene_height
+        )
+        self.addItem(self.grid_lines)
+
+        # Time axis
+        self.time_axis = TimeAxisItem(
+            render_range,
+            self.scene_width,
+            self.TIME_AXIS_HEIGHT
+        )
+        self.addItem(self.time_axis)
+
+        # Add label and waveform pairs
+        y_offset = self.TIME_AXIS_HEIGHT
+        for signal_name in self.visible_signal_names:
+            signal_data = self.signal_data_map.get(signal_name)
+            if not signal_data:
+                continue
+
+            label_item = SignalLabelItem(signal_data.device_id, signal_data.name)
+            label_item.setPos(0, y_offset)
+            self.addItem(label_item)
+            self.label_items.append(label_item)
+
+            signal_item = SignalItem(
+                signal_data,
+                render_range,
+                waveform_width
+            )
+            signal_item.setPos(self.LABEL_WIDTH, y_offset)
+            self.addItem(signal_item)
+            self.signal_items.append(signal_item)
+
+            y_offset += self.SIGNAL_HEIGHT
+
+        # Update scene rect
+        self.setSceneRect(0, 0, self.scene_width, self.scene_height)
+
+        # Ensure current time range is applied to new items
+        if self.visible_time_range:
+            start, end = self.visible_time_range
+            self.set_time_range(start, end)

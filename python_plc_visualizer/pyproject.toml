@@ -1,0 +1,10 @@
+[project]
+name = "python-plc-visualizer"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.10"
+dependencies = [
+    "pyqt6>=6.9.1",
+    "pytest>=8.4.2",
+    "pytest-qt>=4.5.0",
+]
