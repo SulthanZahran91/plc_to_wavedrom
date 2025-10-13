@@ -204,7 +204,7 @@ class DefaultParser(BaseParser):
         timestamp = self._parse_timestamp_fast(time_str)
 
         # Parse type using pre-built mapping
-        signal_type = self.TYPE_MAP.get(type_str.lower())
+        signal_type = self.TYPE_MAP.get(type_str.lower().strip())
         if not signal_type:
             raise ValueError(f"Invalid type: {type_str}")
 

@@ -8,7 +8,7 @@ from plc_visualizer.parsers import parser_registry
 from plc_visualizer.ui import WaveformView
 
 # Parse the file
-sample_file = Path(__file__).parent / "test_data" / "sample copy.log"
+sample_file = Path(__file__).parent / "test_data" / "sample.log"
 print(f"Testing with: {sample_file}")
 
 result = parser_registry.parse(str(sample_file))

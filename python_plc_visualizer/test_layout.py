@@ -11,7 +11,7 @@ print("Verifying Waveform Layout...")
 print("="*60)
 
 # Parse sample file
-sample_file = Path(__file__).parent / "test_data" / "sample copy.log"
+sample_file = Path(__file__).parent / "test_data" / "sample.log"
 result = parser_registry.parse(str(sample_file))
 
 if not result.success:
