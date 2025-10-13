@@ -1,7 +1,7 @@
 """Base parser interface for PLC log files."""
 
 from abc import ABC, abstractmethod
-from typing import Iterator
+from typing import Iterator, Optional
 
 from plc_visualizer.models import LogEntry, ParseResult
 
@@ -17,11 +17,16 @@ class BaseParser(ABC):
     name: str = "base"
 
     @abstractmethod
-    def parse(self, file_path: str) -> ParseResult:
+    def parse(self, file_path: str, num_workers: Optional[int] = None) -> ParseResult:
         """Parse a complete log file.
 
         Args:
             file_path: Path to the log file to parse
+            num_workers: Number of worker processes for parallel parsing.
+                        None or 1 = single-threaded
+                        0 = use all available CPU cores
+                        >1 = use specified number of workers
+                        Default is None for backward compatibility.
 
         Returns:
             ParseResult containing parsed data and any errors

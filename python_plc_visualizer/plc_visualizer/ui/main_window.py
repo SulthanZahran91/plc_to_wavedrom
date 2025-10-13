@@ -1,7 +1,7 @@
 """Main application window for PLC Log Visualizer."""
 
 from pathlib import Path
-
+from datetime import timedelta
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -13,6 +13,9 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
 )
+
+import cProfile
+import pstats
 
 from plc_visualizer.models import ParseResult
 from plc_visualizer.parsers import parser_registry
@@ -41,7 +44,32 @@ class ParserThread(QThread):
     def run(self):
         """Parse the file in background thread."""
         try:
-            result = parser_registry.parse(self.file_path)
+            
+            import cProfile
+            import pstats
+            from pathlib import Path
+            
+            # Start profiling
+            profiler = cProfile.Profile()
+            profiler.enable()
+
+            result = parser_registry.parse(self.file_path, num_workers=0)
+            
+            # Stop profiling
+            profiler.disable()
+            
+            # Save profile to file
+            profile_path = Path.home() / 'parse_profile.prof'
+            profiler.dump_stats(str(profile_path))
+            
+            # Print quick summary to console
+            stats = pstats.Stats(profiler)
+            stats.sort_stats('cumulative')
+            print(f"\n=== Profile saved to: {profile_path} ===")
+            print("\nTop 10 slowest operations:")
+            stats.print_stats(10)
+            
+
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(f"Failed to parse file: {str(e)}")
@@ -212,6 +240,7 @@ class MainWindow(QMainWindow):
         Args:
             file_path: Path to the file to parse
         """
+        
         # Show progress bar
         self.progress_bar.setVisible(True)
         self.upload_widget.setEnabled(False)
@@ -234,6 +263,11 @@ class MainWindow(QMainWindow):
         Args:
             result: ParseResult containing parsed data and errors
         """
+        import time
+        print(f"\n=== Parse finished, processing results ===")
+        start = time.time()
+
+
         # Hide progress bar
         self.progress_bar.setVisible(False)
         self.upload_widget.setEnabled(True)
@@ -251,21 +285,43 @@ class MainWindow(QMainWindow):
             return
 
         # Update UI with results
+        t = time.time()
         self.stats_widget.update_stats(result)
         self._current_parsed_log = result.data
+        print(f"update_stats: {time.time() - t:.2f}s")
 
+        t = time.time()
         signal_data_list = process_signals_for_waveform(result.data)
+        print(f"process_signals_for_waveform: {time.time() - t:.2f}s")
+        
+        t = time.time()
         self._signal_data_list = signal_data_list
         self._visible_signal_names = [signal.key for signal in signal_data_list]
-
+        
+        print(f"About to call waveform_view.set_data with {len(signal_data_list)} signals...")
         self.waveform_view.set_data(result.data, signal_data_list)
+        print(f"waveform_view.set_data: {time.time() - t:.2f}s")
+        t = time.time()
         self.data_table.set_data(result.data)
+        print(f"data_table.set_data: {time.time() - t:.2f}s")
+
+        t = time.time()
         self.signal_filter.set_signals(signal_data_list)
+        print(f"signal_filter.set_signals: {time.time() - t:.2f}s")
+
 
         # Initialize viewport state with the time range
         if result.data and result.data.time_range:
             start_time, end_time = result.data.time_range
             self._viewport_state.set_full_time_range(start_time, end_time)
+        
+            initial_end = start_time + timedelta(seconds=10)  # 10 seconds from start
+            if initial_end > end_time:
+                initial_end = end_time  # Don't exceed actual data
+
+            self._viewport_state.set_time_range(start_time, initial_end)
+
+            # self._viewport_state.time_range_changed.emit(start_time, initial_end)  # ← Add this
 
             # Update controls
             self.pan_controls.set_time_range(start_time, end_time)
@@ -298,6 +354,8 @@ class MainWindow(QMainWindow):
                 f"Successfully parsed {result.data.entry_count} entries.\n\n"
                 f"See the statistics panel for details."
             )
+        print(f"TOTAL _on_parse_finished: {time.time() - start:.2f}s")
+
 
     def _on_parse_error(self, error_msg: str):
         """Handle parsing error.

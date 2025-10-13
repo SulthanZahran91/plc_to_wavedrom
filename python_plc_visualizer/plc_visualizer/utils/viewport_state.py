@@ -46,12 +46,12 @@ class ViewportState(QObject):
 
         self._full_start = start
         self._full_end = end
-        self._visible_start = start
-        self._visible_end = end
+        # self._visible_start = start
+        # self._visible_end = end
         self._zoom_level = 1.0
 
-        self.time_range_changed.emit(self._visible_start, self._visible_end)
-        self.zoom_level_changed.emit(self._zoom_level)
+        # self.time_range_changed.emit(self._visible_start, self._visible_end)
+        # self.zoom_level_changed.emit(self._zoom_level)
 
     @property
     def full_time_range(self) -> Optional[Tuple[datetime, datetime]]:

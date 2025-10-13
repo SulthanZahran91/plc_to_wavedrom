@@ -165,6 +165,8 @@ class SignalFilterWidget(QWidget):
     # Public API ---------------------------------------------------------
     def set_signals(self, signal_data: List[SignalData]):
         """Populate the filter with available signals."""
+        print(f"Loading {len(signal_data)} signals...")  # ← Add this
+
         self._signals = [
             SignalInfo(
                 device_id=data.device_id,
@@ -182,12 +184,25 @@ class SignalFilterWidget(QWidget):
         for signals in self._signals_by_device.values():
             signals.sort(key=lambda info: info.name.lower())
 
-        self._selected_signals = {info.key for info in self._signals}
-        self._selected_devices = set(self._signals_by_device.keys())
+        # self._selected_signals = {info.key for info in self._signals}
+        self._selected_signals = set()
+        # self._selected_devices = set(self._signals_by_device.keys())
+        self._selected_devices = set()
         self._presets.clear()
         self._reset_preset_combo()
         self.setEnabled(bool(self._signals))
-        self._on_clear_filters()
+        # self._on_clear_filters()
+        self._search_query = ""
+        self._pending_search = ""
+        self._show_only_changed = False
+        self._type_filters = {SignalType.BOOLEAN, SignalType.STRING, SignalType.INTEGER}
+        
+        # Update filter state but don't build tree yet
+        self._apply_filters()  # This will build the tree, but with deferred approach below
+        
+        # Emit empty list since nothing is selected
+        self.visible_signals_changed.emit([])
+
 
     def clear(self):
         """Reset the widget."""
@@ -251,6 +266,10 @@ class SignalFilterWidget(QWidget):
 
     def _refresh_tree(self):
         """Refresh tree widget items after filtering."""
+        if not self.isVisible():
+            print("Deferring tree build - widget not visible")
+            return
+
         self._updating_list = True
         self.signal_tree.clear()
 
@@ -300,7 +319,7 @@ class SignalFilterWidget(QWidget):
 
                 device_item.addChild(signal_item)
 
-        self.signal_tree.expandAll()
+        # self.signal_tree.expandAll()
         self._updating_list = False
 
         self._selected_devices = {
@@ -626,3 +645,11 @@ class SignalFilterWidget(QWidget):
             return
         name = self.preset_combo.itemText(index)
         self._apply_preset(name)
+        
+    def showEvent(self, event):
+        """Build tree when widget becomes visible."""
+        super().showEvent(event)
+        # Build tree on first show if we have signals but no tree items
+        if self._signals and not self.signal_tree.topLevelItemCount():
+            print("Building tree on first show...")
+            self._refresh_tree()

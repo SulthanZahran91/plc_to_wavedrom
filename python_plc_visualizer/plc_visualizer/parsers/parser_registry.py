@@ -66,13 +66,18 @@ class ParserRegistry:
     def parse(
         self,
         file_path: str,
-        parser_name: Optional[str] = None
+        parser_name: Optional[str] = None,
+        num_workers: int = 0
     ) -> ParseResult:
         """Parse a file using auto-detection or specified parser.
 
         Args:
             file_path: Path to the file to parse
             parser_name: Optional name of parser to use
+            num_workers: Number of worker processes for parallel parsing.
+                        0 = use all available CPU cores (default)
+                        1 = single-threaded
+                        >1 = use specified number of workers
 
         Returns:
             ParseResult containing parsed data and errors
@@ -105,7 +110,7 @@ class ParserRegistry:
                 )]
             )
 
-        return parser.parse(file_path)
+        return parser.parse(file_path, num_workers=num_workers)
 
     def get_parser_names(self) -> list[str]:
         """Get all registered parser names.

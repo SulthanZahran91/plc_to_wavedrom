@@ -71,7 +71,8 @@ class WaveformScene(QGraphicsScene):
 
         self.signal_data_map = {signal.key: signal for signal in signal_data_list}
         self.all_signal_names = [signal.key for signal in signal_data_list]
-        self.visible_signal_names = list(self.all_signal_names)
+        # self.visible_signal_names = list(self.all_signal_names)
+        self.visible_signal_names = []
 
         self._build_scene()
 
