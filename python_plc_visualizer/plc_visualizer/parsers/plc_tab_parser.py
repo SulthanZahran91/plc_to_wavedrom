@@ -4,6 +4,7 @@ from .base_parser import GenericTemplateLogParser
 
 class PLCTabParser(GenericTemplateLogParser):
     name = "plc_tab"
+    DEVICE_ID_REGEX = re.compile(r"([A-Za-z0-9_-]+)(?:@[^\]]+)?$")
 
     # # Keep TEMPLATE for can_parse() fallback if you want
     # TEMPLATE = (
@@ -27,9 +28,9 @@ class PLCTabParser(GenericTemplateLogParser):
         r'(?P<value>[^\t]*)\t'
         r'(?P<blank>[^\t]*)\t'
         r'(?P<location>[^\t]*)\t'
-        r'(?P<flag1>[^\t]*)\t'
-        r'(?P<flag2>[^\t]*)\t'
-        r'(?P<ts2>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)\s*$'
+        r'(?P<flag1>[^\t]*)'
+        r'(?:\t(?P<flag2>[^\t]*))?'
+        r'\t(?P<ts2>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)\s*$'
     )
 
 

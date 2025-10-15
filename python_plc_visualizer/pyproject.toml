@@ -9,4 +9,5 @@ dependencies = [
     "pytest>=8.4.2",
     "pytest-qt>=4.5.0",
     "qt-material>=2.17",
+    "sip>=6.13.1",
 ]

@@ -59,9 +59,12 @@ class ParserRegistry:
             Suitable parser or None
         """
         for parser in self._parsers.values():
-            print(f"trying parser {parser}")
-            can_parse = parser.can_parse(file_path)
-            print(can_parse)
+            try:
+                can_parse = parser.can_parse(file_path)
+                print(f"[ParserRegistry] {parser.name}: can_parse={can_parse}")
+            except Exception as exc:
+                can_parse = False
+                print(f"[ParserRegistry] {parser.name}: can_parse raised {exc!r}")
             if can_parse:
                 return parser
         return self._default_parser
@@ -88,7 +91,6 @@ class ParserRegistry:
         from plc_visualizer.models import ParseError
 
         parser: Optional[BaseParser] = None
-        print(f"trying parsing with {parser_name}")
         if parser_name:
             parser = self.get_parser(parser_name)
             if not parser:
@@ -113,6 +115,7 @@ class ParserRegistry:
                 )]
             )
 
+        print(f"[ParserRegistry] Using parser '{parser.name}' for {file_path}")
         return parser.parse(file_path, num_workers=num_workers)
 
     def get_parser_names(self) -> list[str]:

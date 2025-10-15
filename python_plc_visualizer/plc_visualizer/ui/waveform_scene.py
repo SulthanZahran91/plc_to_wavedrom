@@ -5,6 +5,11 @@ from datetime import datetime
 from PyQt6.QtWidgets import QGraphicsScene
 from PyQt6.QtCore import QRect
 
+try:
+    from PyQt6 import sip  # PyQt6-packaged sip
+except ImportError:  # pragma: no cover
+    import sip  # Fallback for environments exposing sip at top level
+
 from plc_visualizer.models import ParsedLog
 from plc_visualizer.utils import SignalData, process_signals_for_waveform
 from .time_axis_item import TimeAxisItem
@@ -21,7 +26,6 @@ class WaveformScene(QGraphicsScene):
     TIME_AXIS_HEIGHT = 30.0
     SIGNAL_HEIGHT = 60.0  # Increased from 40.0 for better visibility
     LABEL_WIDTH = 180.0  # Width of signal label column
-    row_items: list[SignalRowItem] = []
 
 
     def __init__(self, parent=None):
@@ -30,6 +34,7 @@ class WaveformScene(QGraphicsScene):
         self.parsed_log = None
         self.signal_items = []  # Waveform items only
         self.label_items = []  # Signal label items
+        self.row_items = []
         self.time_axis = None
         self.grid_lines = None
         self.signal_data_map: dict[str, SignalData] = {}
@@ -92,23 +97,37 @@ class WaveformScene(QGraphicsScene):
         waveform_width = max(self.scene_width - self.LABEL_WIDTH, 100.0)
 
         # Update grid lines
-        if self.grid_lines:
+        if self.grid_lines and not sip.isdeleted(self.grid_lines):
             self.grid_lines.update_dimensions(self.scene_width, self.scene_height)
+        else:
+            self.grid_lines = None
 
         # Update time axis
-        if self.time_axis:
+        if self.time_axis and not sip.isdeleted(self.time_axis):
             self.time_axis.update_width(self.scene_width)
+        else:
+            self.time_axis = None
 
         # Update all signal waveform items (not labels - they're fixed width)
+        alive_signal_items: list[SignalItem] = []
         for signal_item in self.signal_items:
+            if sip.isdeleted(signal_item):
+                continue
             signal_item.update_width(waveform_width)
+            alive_signal_items.append(signal_item)
+        self.signal_items = alive_signal_items
 
         # Update scene rect
         self.setSceneRect(0, 0, self.scene_width, self.scene_height)
         
+        alive_rows: list[SignalRowItem] = []
         for row in self.row_items:
+            if sip.isdeleted(row):
+                continue
             row.update_width(self.scene_width)
-            self.setSceneRect(0, 0, self.scene_width, self.scene_height)
+            alive_rows.append(row)
+        self.row_items = alive_rows
+        self.setSceneRect(0, 0, self.scene_width, self.scene_height)
 
 
     def get_signal_count(self) -> int:
@@ -125,16 +144,21 @@ class WaveformScene(QGraphicsScene):
         self.visible_time_range = (start, end)
 
         # Update time axis
-        if self.time_axis:
+        if self.time_axis and not sip.isdeleted(self.time_axis):
             self.time_axis.set_time_range(start, end)
 
         # Update grid lines
-        if self.grid_lines:
+        if self.grid_lines and not sip.isdeleted(self.grid_lines):
             self.grid_lines.set_time_range(start, end)
 
         # Update all signal items
+        alive_signal_items: list[SignalItem] = []
         for signal_item in self.signal_items:
+            if sip.isdeleted(signal_item):
+                continue
             signal_item.set_time_range(start, end)
+            alive_signal_items.append(signal_item)
+        self.signal_items = alive_signal_items
 
     def set_visible_signals(self, signal_names: list[str]):
         """Update which signals are visible and rebuild the scene."""
@@ -156,7 +180,7 @@ class WaveformScene(QGraphicsScene):
         self.clear()
         self.signal_items.clear()
         self.label_items.clear()
-        self.row_items.clear()
+        self.row_items = []
         self.time_axis = None
         self.grid_lines = None
 
