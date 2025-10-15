@@ -48,6 +48,18 @@ class WaveformView(QGraphicsView):
                 background-color: #fafafa;
             }
         """)
+        
+    def _pin_time_axis(self):
+        """Keep the time axis visually frozen at the top of the viewport."""
+        scene = self.waveform_scene
+        if scene and scene.time_axis:
+            # Scene coords of viewport's top-left
+            tl = self.mapToScene(0, 0)
+            scene.time_axis.setPos(tl.x(), tl.y())
+            scene.time_axis.setZValue(1_000_000)  # ensure on top
+            # Prevent interactions on the axis (optional)
+            scene.time_axis.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
 
     def resizeEvent(self, event):
         """Handle resize events to update scene width."""
@@ -57,6 +69,13 @@ class WaveformView(QGraphicsView):
         self.resetTransform()
         viewport_width = self.viewport().width()
         self.waveform_scene.update_width(viewport_width)
+        self._pin_time_axis()
+
+    def scrollContentsBy(self, dx: int, dy: int):
+        """Called whenever the view scrolls; re-pin the axis."""
+        super().scrollContentsBy(dx, dy)
+        self._pin_time_axis()
+
 
     def set_data(self, parsed_log, signal_data_list=None):
         """Set the data to visualize.
@@ -77,6 +96,8 @@ class WaveformView(QGraphicsView):
         # Start the view at the top-left of the waveform area
         if self.waveform_scene.sceneRect().isValid():
             self.ensureVisible(QRectF(0, 0, 1, 1), 0, 0)
+            
+        self._pin_time_axis()
 
     def set_visible_signals(self, signal_names: list[str]):
         """Update which signals are visible in the view."""
@@ -112,6 +133,8 @@ class WaveformView(QGraphicsView):
         # Update scene to render only visible time range
         if self.waveform_scene.parsed_log:
             self.waveform_scene.set_time_range(start, end)
+
+        self._pin_time_axis()
 
     def wheelEvent(self, event: QWheelEvent):
         """Handle mouse wheel events for zooming.
