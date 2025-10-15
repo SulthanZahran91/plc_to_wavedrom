@@ -87,11 +87,11 @@ class MainWindow(QMainWindow):
         self._parser_thread = None
         self._viewport_state = ViewportState(self)
         self._init_ui()
+        
 
     def _init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("PLC Log Visualizer")
-        self.setMinimumSize(1000, 700)
 
         # Central widget
         central_widget = QWidget()
@@ -175,12 +175,12 @@ class MainWindow(QMainWindow):
         right_splitter.addWidget(self.data_table)
 
         # Set initial vertical split (60% waveform, 40% table)
-        right_splitter.setSizes([600, 400])
+        # right_splitter.setSizes([600, 400])
 
         main_splitter.addWidget(right_splitter)
 
         # Set initial horizontal split (roughly 30% stats/filters, 70% content)
-        main_splitter.setSizes([320, 680])
+        # main_splitter.setSizes([320, 680])
 
         main_layout.addWidget(main_splitter, stretch=1)
 
@@ -285,29 +285,29 @@ class MainWindow(QMainWindow):
             return
 
         # Update UI with results
-        t = time.time()
+        # t = time.time()
         self.stats_widget.update_stats(result)
         self._current_parsed_log = result.data
-        print(f"update_stats: {time.time() - t:.2f}s")
+        # print(f"update_stats: {time.time() - t:.2f}s")
 
-        t = time.time()
+        # t = time.time()
         signal_data_list = process_signals_for_waveform(result.data)
-        print(f"process_signals_for_waveform: {time.time() - t:.2f}s")
+        # print(f"process_signals_for_waveform: {time.time() - t:.2f}s")
         
-        t = time.time()
+        # t = time.time()
         self._signal_data_list = signal_data_list
         self._visible_signal_names = [signal.key for signal in signal_data_list]
         
-        print(f"About to call waveform_view.set_data with {len(signal_data_list)} signals...")
+        # print(f"About to call waveform_view.set_data with {len(signal_data_list)} signals...")
         self.waveform_view.set_data(result.data, signal_data_list)
-        print(f"waveform_view.set_data: {time.time() - t:.2f}s")
-        t = time.time()
+        # print(f"waveform_view.set_data: {time.time() - t:.2f}s")
+        # t = time.time()
         self.data_table.set_data(result.data)
-        print(f"data_table.set_data: {time.time() - t:.2f}s")
+        # print(f"data_table.set_data: {time.time() - t:.2f}s")
 
-        t = time.time()
+        # t = time.time()
         self.signal_filter.set_signals(signal_data_list)
-        print(f"signal_filter.set_signals: {time.time() - t:.2f}s")
+        # print(f"signal_filter.set_signals: {time.time() - t:.2f}s")
 
 
         # Initialize viewport state with the time range

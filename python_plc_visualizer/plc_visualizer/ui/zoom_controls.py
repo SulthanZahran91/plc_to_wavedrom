@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QIcon
-
+from .ClickableLabel import ClickableLabel
 
 class ZoomControls(QWidget):
     """Widget providing zoom controls (buttons, slider, display).
@@ -51,7 +51,7 @@ class ZoomControls(QWidget):
 
         self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
         self.zoom_slider.setMinimum(0)  # Will map to min_zoom
-        self.zoom_slider.setMaximum(100)  # Will map to max_zoom
+        self.zoom_slider.setMaximum(1000)  # Will map to max_zoom
         self.zoom_slider.setValue(0)  # Start at minimum (1x)
         self.zoom_slider.setFixedWidth(200)
         self.zoom_slider.setToolTip("Zoom level (1x to 100x)")
@@ -68,10 +68,11 @@ class ZoomControls(QWidget):
         layout.addWidget(self.zoom_in_btn)
 
         # Zoom level display
-        self.zoom_label = QLabel("Zoom: 1.0x")
+        self.zoom_label = ClickableLabel("Zoom: 1.0x")
         self.zoom_label.setMinimumWidth(90)
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.zoom_label.setToolTip("Current zoom level")
+        self.zoom_label.zoom_changed.connect(lambda z: self.zoom_level_changed.emit(z))
         layout.addWidget(self.zoom_label)
 
         # Reset button
@@ -146,14 +147,14 @@ class ZoomControls(QWidget):
         # Map slider value (0-100) to zoom level (1.0-100.0)
         # Using logarithmic scale for better control
         min_zoom = 1.0
-        max_zoom = 100.0
+        max_zoom = 1000.0
 
         if value == 0:
             zoom = min_zoom
         else:
             # Logarithmic scale
             import math
-            zoom = min_zoom * math.pow(max_zoom / min_zoom, value / 100.0)
+            zoom = min_zoom * math.pow(max_zoom / min_zoom, value / 1000.0)
 
         self.zoom_level_changed.emit(zoom)
 
@@ -169,13 +170,13 @@ class ZoomControls(QWidget):
         # Update slider position (without triggering signal)
         import math
         min_zoom = 1.0
-        max_zoom = 100.0
+        max_zoom = 1000.0
 
         if zoom <= min_zoom:
             slider_value = 0
         else:
             # Inverse logarithmic scale
-            slider_value = int(100.0 * math.log(zoom / min_zoom) / math.log(max_zoom / min_zoom))
+            slider_value = int(1000.0 * math.log(zoom / min_zoom) / math.log(max_zoom / min_zoom))
 
         # Block signals to avoid feedback loop
         self.zoom_slider.blockSignals(True)

@@ -59,7 +59,10 @@ class ParserRegistry:
             Suitable parser or None
         """
         for parser in self._parsers.values():
-            if parser.can_parse(file_path):
+            print(f"trying parser {parser}")
+            can_parse = parser.can_parse(file_path)
+            print(can_parse)
+            if can_parse:
                 return parser
         return self._default_parser
 
@@ -85,7 +88,7 @@ class ParserRegistry:
         from plc_visualizer.models import ParseError
 
         parser: Optional[BaseParser] = None
-
+        print(f"trying parsing with {parser_name}")
         if parser_name:
             parser = self.get_parser(parser_name)
             if not parser:

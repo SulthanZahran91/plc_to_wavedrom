@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from PyQt6.QtWidgets import QGraphicsScene
-from PyQt6.QtCore import QRectF
+from PyQt6.QtCore import QRect
 
 from plc_visualizer.models import ParsedLog
 from plc_visualizer.utils import SignalData, process_signals_for_waveform
@@ -11,6 +11,8 @@ from .time_axis_item import TimeAxisItem
 from .signal_item import SignalItem
 from .signal_label_item import SignalLabelItem
 from .grid_lines_item import GridLinesItem
+from .signal_row_item import SignalRowItem
+
 
 
 class WaveformScene(QGraphicsScene):
@@ -19,6 +21,8 @@ class WaveformScene(QGraphicsScene):
     TIME_AXIS_HEIGHT = 30.0
     SIGNAL_HEIGHT = 60.0  # Increased from 40.0 for better visibility
     LABEL_WIDTH = 180.0  # Width of signal label column
+    row_items: list[SignalRowItem] = []
+
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -60,6 +64,8 @@ class WaveformScene(QGraphicsScene):
         self.signal_data_map.clear()
         self.all_signal_names.clear()
         self.visible_signal_names.clear()
+        self.row_items = []   # reset
+
 
         if not parsed_log or not parsed_log.time_range:
             self.clear()
@@ -99,6 +105,11 @@ class WaveformScene(QGraphicsScene):
 
         # Update scene rect
         self.setSceneRect(0, 0, self.scene_width, self.scene_height)
+        
+        for row in self.row_items:
+            row.update_width(self.scene_width)
+            self.setSceneRect(0, 0, self.scene_width, self.scene_height)
+
 
     def get_signal_count(self) -> int:
         """Get the number of signals displayed."""
@@ -145,6 +156,7 @@ class WaveformScene(QGraphicsScene):
         self.clear()
         self.signal_items.clear()
         self.label_items.clear()
+        self.row_items.clear()
         self.time_axis = None
         self.grid_lines = None
 
@@ -174,29 +186,52 @@ class WaveformScene(QGraphicsScene):
             self.TIME_AXIS_HEIGHT
         )
         self.addItem(self.time_axis)
-
+        
         # Add label and waveform pairs
         y_offset = self.TIME_AXIS_HEIGHT
+        waveform_width = max(self.scene_width - self.LABEL_WIDTH, 100)
+        row_total_width = self.scene_width
+        
         for signal_name in self.visible_signal_names:
             signal_data = self.signal_data_map.get(signal_name)
             if not signal_data:
                 continue
 
             label_item = SignalLabelItem(signal_data.device_id, signal_data.name)
-            label_item.setPos(0, y_offset)
-            self.addItem(label_item)
-            self.label_items.append(label_item)
+            label_item.setPos(0, 0)
+            
+            # self.addItem(label_item)
+            # self.label_items.append(label_item)
 
             signal_item = SignalItem(
                 signal_data,
                 render_range,
                 waveform_width
             )
-            signal_item.setPos(self.LABEL_WIDTH, y_offset)
-            self.addItem(signal_item)
+            signal_item.setPos(self.LABEL_WIDTH, 0)
+            # self.addItem(signal_item)
+            # self.signal_items.append(signal_item)
+            
+            row = SignalRowItem(
+                label_item=label_item,
+                waveform_item=signal_item,
+                row_height=self.SIGNAL_HEIGHT,
+                top_margin=self.TIME_AXIS_HEIGHT,
+                total_width=row_total_width,
+            )
+            
+            row.signal_key = signal_data.key             
+            self.addItem(row)
+            row.set_row_index(len(self.row_items))
+            row.dropped.connect(self._on_row_dropped)
+            
+            self.label_items.append(label_item)
             self.signal_items.append(signal_item)
+            
+            self.row_items.append(row)
 
-            y_offset += self.SIGNAL_HEIGHT
+
+            # y_offset += self.SIGNAL_HEIGHT
 
         # Update scene rect
         self.setSceneRect(0, 0, self.scene_width, self.scene_height)
@@ -205,3 +240,16 @@ class WaveformScene(QGraphicsScene):
         if self.visible_time_range:
             start, end = self.visible_time_range
             self.set_time_range(start, end)
+            
+    def _on_row_dropped(self, row: SignalRowItem):
+    # sort by visual Y
+        ordered_rows = sorted(self.row_items, key=lambda r: r.pos().y())
+
+        # snap rows to their exact slots
+        for i, r in enumerate(ordered_rows):
+            r.set_row_index(i)
+
+        # update the logical order using the canonical keys you stored
+        self.visible_signal_names = [r.signal_key for r in ordered_rows]
+
+        # (no rebuild necessary here; items are already in place)

@@ -6,6 +6,8 @@ from .stats_widget import StatsWidget
 from .data_table_widget import DataTableWidget
 from .waveform_view import WaveformView
 from .signal_filter_widget import SignalFilterWidget
+from .ClickableLabel import ClickableLabel
+
 
 __all__ = [
     'MainWindow',
@@ -14,4 +16,5 @@ __all__ = [
     'DataTableWidget',
     'WaveformView',
     'SignalFilterWidget'
+    'ClickableLabel'
 ]

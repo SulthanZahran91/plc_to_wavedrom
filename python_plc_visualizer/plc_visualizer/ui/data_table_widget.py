@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 )
 
 from plc_visualizer.models import ParsedLog, LogEntry
+from .CopyPasteTableView import CopyPasteTableView
 
 
 class LogDataModel(QAbstractTableModel):
@@ -101,7 +102,7 @@ class DataTableWidget(QWidget):
         layout.addWidget(title)
 
         # Table view
-        self.table_view = QTableView()
+        self.table_view = CopyPasteTableView()
         self.model = LogDataModel(self)
         self.table_view.setModel(self.model)
 

@@ -32,7 +32,7 @@ class ViewportState(QObject):
 
         # Zoom constraints
         self.min_zoom = 1.0
-        self.max_zoom = 100.0
+        self.max_zoom = 1000.0
 
     def set_full_time_range(self, start: datetime, end: datetime):
         """Set the full time range of the loaded log.
@@ -216,7 +216,10 @@ class ViewportState(QObject):
             return
 
         if start >= end:
-            raise ValueError("Start time must be before end time")
+            start, end = end, start
+        elif start == end:
+            start -= timedelta(seconds=1)
+
 
         # Constrain to full range
         start = max(start, self._full_start)
@@ -225,6 +228,11 @@ class ViewportState(QObject):
         # Calculate new zoom level
         full_duration = self._full_end - self._full_start
         visible_duration = end - start
+        if visible_duration <= timedelta(0):
+            # fix zero/negative span
+            end = start + timedelta(microseconds=1)
+            visible_duration = end - start
+            
         new_zoom = full_duration / visible_duration
 
         self._visible_start = start
