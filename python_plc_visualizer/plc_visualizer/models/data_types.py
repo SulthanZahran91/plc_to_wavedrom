@@ -75,9 +75,11 @@ class ParseError:
     line: int
     content: str
     reason: str
+    file_path: str | None = None
 
     def __repr__(self) -> str:
-        return f"ParseError(line={self.line}, reason={self.reason})"
+        file_info = f", file={self.file_path}" if self.file_path else ""
+        return f"ParseError(line={self.line}{file_info}, reason={self.reason})"
 
 
 @dataclass

@@ -30,3 +30,4 @@ coverage_report/
 test_data/random.log
 *.rej
 *.orig
+AGENTS.MD

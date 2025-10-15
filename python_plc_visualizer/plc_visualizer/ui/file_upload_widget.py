@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 class FileUploadWidget(QWidget):
     """Widget for uploading log files via button or drag-and-drop."""
 
-    file_selected = pyqtSignal(str)  # Emits file path when file is selected
+    files_selected = pyqtSignal(list)  # Emits list of file paths when selected
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -42,13 +42,13 @@ class FileUploadWidget(QWidget):
         drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Icon/Label
-        self.label = QLabel("📁 Drag and drop a log file here\nor click to browse")
+        self.label = QLabel("📁 Drag and drop log files here\nor click to browse")
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label.setStyleSheet("font-size: 14px; padding: 20px;")
         drop_layout.addWidget(self.label)
 
         # Browse button
-        self.browse_button = QPushButton("Browse for File")
+        self.browse_button = QPushButton("Browse for Files")
         self.browse_button.clicked.connect(self._browse_file)
         self.browse_button.setMinimumHeight(40)
         drop_layout.addWidget(self.browse_button)
@@ -82,7 +82,7 @@ class FileUploadWidget(QWidget):
         """Handle drag enter event."""
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
-            if urls and urls[0].toLocalFile().endswith('.log'):
+            if any(Path(url.toLocalFile()).is_file() for url in urls):
                 event.acceptProposedAction()
                 self._apply_hover_style()
                 return
@@ -99,25 +99,28 @@ class FileUploadWidget(QWidget):
 
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
-            if urls:
-                file_path = urls[0].toLocalFile()
-                if Path(file_path).is_file():
-                    self.file_selected.emit(file_path)
-                    event.acceptProposedAction()
-                    return
+            file_paths = [
+                url.toLocalFile()
+                for url in urls
+                if Path(url.toLocalFile()).is_file()
+            ]
+            if file_paths:
+                self.files_selected.emit(file_paths)
+                event.acceptProposedAction()
+                return
         event.ignore()
 
     def _browse_file(self):
         """Open file browser dialog."""
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select Log File",
+            "Select Log Files",
             "",
             "Log Files (*.log);;All Files (*)"
         )
 
-        if file_path:
-            self.file_selected.emit(file_path)
+        if file_paths:
+            self.files_selected.emit(file_paths)
 
     def set_status(self, text: str):
         """Update the status text in the drop zone."""

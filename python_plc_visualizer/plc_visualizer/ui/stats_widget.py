@@ -1,5 +1,7 @@
 """Widget for displaying parsing statistics."""
 
+from pathlib import Path
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget,
@@ -117,7 +119,10 @@ class StatsWidget(QWidget):
             # Show error details
             error_text = f"Parsing Errors ({error_count}):\n" + "="*50 + "\n\n"
             for error in result.errors:
-                error_text += f"Line {error.line}: {error.reason}\n"
+                file_label = ""
+                if error.file_path:
+                    file_label = f"[{Path(error.file_path).name}] "
+                error_text += f"{file_label}Line {error.line}: {error.reason}\n"
                 error_text += f"  Content: {error.content[:80]}\n\n"
 
             self.error_details.setText(error_text)

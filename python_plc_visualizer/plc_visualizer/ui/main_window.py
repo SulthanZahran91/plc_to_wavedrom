@@ -1,7 +1,8 @@
 """Main application window for PLC Log Visualizer."""
 
 from pathlib import Path
-from datetime import timedelta
+from datetime import timedeltafrom typing import Dict, List
+
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -20,7 +21,11 @@ import pstats
 from plc_visualizer.models import ParseResult
 from plc_visualizer.parsers import parser_registry
 from plc_visualizer.utils.viewport_state import ViewportState
-from plc_visualizer.utils import process_signals_for_waveform, SignalData
+from plc_visualizer.utils import (
+    SignalData,
+    merge_parse_results,
+    process_signals_for_waveform,
+)
 from .file_upload_widget import FileUploadWidget
 from .stats_widget import StatsWidget
 from .data_table_widget import DataTableWidget
@@ -32,17 +37,17 @@ from .signal_filter_widget import SignalFilterWidget
 
 
 class ParserThread(QThread):
-    """Background thread for parsing log files."""
+    """Background thread for parsing one or more log files."""
 
-    finished = pyqtSignal(ParseResult)
+    finished = pyqtSignal(object, object)  # aggregated_result, per_file_results
     error = pyqtSignal(str)
 
-    def __init__(self, file_path: str, parent=None):
+    def __init__(self, file_paths: List[str], parent=None):
         super().__init__(parent)
-        self.file_path = file_path
+        self.file_paths = file_paths
 
     def run(self):
-        """Parse the file in background thread."""
+        """Parse files in a background thread."""
         try:
             
             import cProfile
@@ -72,7 +77,7 @@ class ParserThread(QThread):
 
             self.finished.emit(result)
         except Exception as e:
-            self.error.emit(f"Failed to parse file: {str(e)}")
+            self.error.emit(f"Failed to parse files: {str(e)}")
 
 
 class MainWindow(QMainWindow):
@@ -80,8 +85,9 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self._current_file = None
-        self._current_parsed_log = None
+        self._current_files: list[str] = []
+        self._merged_parsed_log = None
+        self._file_results: Dict[str, ParseResult] = {}
         self._signal_data_list: list[SignalData] | None = None
         self._visible_signal_names: list[str] = []
         self._parser_thread = None
@@ -100,7 +106,7 @@ class MainWindow(QMainWindow):
 
         # File upload section
         self.upload_widget = FileUploadWidget()
-        self.upload_widget.file_selected.connect(self._on_file_selected)
+        self.upload_widget.files_selected.connect(self._on_files_selected)
         main_layout.addWidget(self.upload_widget)
 
         # Progress bar (initially hidden)
@@ -108,7 +114,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setRange(0, 0)  # Indeterminate progress
         self.progress_bar.setVisible(False)
         self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFormat("Parsing file... %p%")
+        self.progress_bar.setFormat("Parsing files... %p%")
         main_layout.addWidget(self.progress_bar)
 
         # Main content splitter (stats on left, content on right)
@@ -216,24 +222,38 @@ class MainWindow(QMainWindow):
             }
         """)
 
-    def _on_file_selected(self, file_path: str):
-        """Handle file selection.
-
-        Args:
-            file_path: Path to the selected file
-        """
-        # Validate file exists
-        if not Path(file_path).is_file():
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"File not found: {file_path}"
-            )
+    def _on_files_selected(self, file_paths: list[str]):
+        """Handle selection of one or more files."""
+        if not file_paths:
             return
 
-        self._current_file = file_path
-        self._parse_file(file_path)
+        resolved_paths: list[str] = []
+        missing_paths: list[str] = []
 
+        for path in file_paths:
+            normalized = str(Path(path).expanduser().resolve())
+            if Path(normalized).is_file():
+                if normalized not in resolved_paths:
+                    resolved_paths.append(normalized)
+            else:
+                missing_paths.append(path)
+
+        if missing_paths:
+            missing_list = "\n".join(missing_paths)
+            QMessageBox.warning(
+                self,
+                "Missing Files",
+                f"The following files could not be found:\n\n{missing_list}"
+            )
+
+        if not resolved_paths:
+            return
+
+        self._current_files = resolved_paths
+        self._parse_files(resolved_paths)
+
+    def _parse_files(self, file_paths: list[str]):
+        """Parse the selected log files in a background thread."""
     def _parse_file(self, file_path: str):
         """Parse the log file in background thread.
 
@@ -244,24 +264,36 @@ class MainWindow(QMainWindow):
         # Show progress bar
         self.progress_bar.setVisible(True)
         self.upload_widget.setEnabled(False)
-        self.upload_widget.set_status(f"📄 Parsing: {Path(file_path).name}...")
+        names = ", ".join(Path(path).name for path in file_paths)
+        self.upload_widget.set_status(
+            f"📄 Parsing {len(file_paths)} file(s): {names}"
+        )
 
         # Clear previous results
         self.stats_widget.clear()
         self.data_table.clear()
         self.waveform_view.clear()
+        self.signal_filter.clear()
+        self._merged_parsed_log = None
+        self._signal_data_list = None
+        self._visible_signal_names = []
 
         # Create and start parser thread
-        self._parser_thread = ParserThread(file_path, self)
+        self._parser_thread = ParserThread(file_paths, self)
         self._parser_thread.finished.connect(self._on_parse_finished)
         self._parser_thread.error.connect(self._on_parse_error)
         self._parser_thread.start()
 
-    def _on_parse_finished(self, result: ParseResult):
+    def _on_parse_finished(
+        self,
+        aggregated_result: ParseResult,
+        per_file_results: dict[str, ParseResult],
+    ):
         """Handle parsing completion.
 
         Args:
-            result: ParseResult containing parsed data and errors
+            aggregated_result: Combined ParseResult containing merged data/errors
+            per_file_results: Mapping of file path to individual ParseResult
         """
         import time
         print(f"\n=== Parse finished, processing results ===")
@@ -272,19 +304,41 @@ class MainWindow(QMainWindow):
         self.progress_bar.setVisible(False)
         self.upload_widget.setEnabled(True)
 
-        if not result.success:
-            # Parsing failed
-            error_msg = "Failed to parse file"
-            if result.errors:
-                error_msg += f":\n\n{result.errors[0].reason}"
+        self._file_results = per_file_results
+        self._merged_parsed_log = aggregated_result.data
 
-            QMessageBox.critical(self, "Parsing Error", error_msg)
-            self.upload_widget.set_status(
-                "📁 Drag and drop a log file here\nor click to browse"
+        total_files = len(self._current_files)
+        successful_files = [
+            path for path, result in per_file_results.items() if result.success
+        ]
+        failed_files = [
+            path for path, result in per_file_results.items() if not result.success
+        ]
+
+        self.stats_widget.update_stats(aggregated_result)
+
+        if not aggregated_result.success:
+            # No data parsed successfully
+            primary_error = aggregated_result.errors[0] if aggregated_result.errors else None
+            details = ""
+            if primary_error:
+                file_name = Path(primary_error.file_path).name if primary_error.file_path else "Unknown file"
+                details = f":\n\n[{file_name}] {primary_error.reason}"
+
+            QMessageBox.critical(
+                self,
+                "Parsing Error",
+                f"Failed to parse selected files{details}"
             )
+            self.upload_widget.set_status(
+                "📁 Drag and drop log files here\nor click to browse"
+            )
+            self.signal_filter.clear()
+            self.load_new_button.setVisible(True)
             return
 
         # Update UI with results
+        signal_data_list = process_signals_for_waveform(aggregated_result.data)
         # t = time.time()
         self.stats_widget.update_stats(result)
         self._current_parsed_log = result.data
@@ -299,10 +353,10 @@ class MainWindow(QMainWindow):
         self._visible_signal_names = [signal.key for signal in signal_data_list]
         
         # print(f"About to call waveform_view.set_data with {len(signal_data_list)} signals...")
-        self.waveform_view.set_data(result.data, signal_data_list)
+        self.waveform_view.set_data(aggregated_result.data, signal_data_list)
         # print(f"waveform_view.set_data: {time.time() - t:.2f}s")
         # t = time.time()
-        self.data_table.set_data(result.data)
+        self.data_table.set_data(aggregated_result.data)
         # print(f"data_table.set_data: {time.time() - t:.2f}s")
 
         # t = time.time()
@@ -311,8 +365,8 @@ class MainWindow(QMainWindow):
 
 
         # Initialize viewport state with the time range
-        if result.data and result.data.time_range:
-            start_time, end_time = result.data.time_range
+        if aggregated_result.data and aggregated_result.data.time_range:
+            start_time, end_time = aggregated_result.data.time_range
             self._viewport_state.set_full_time_range(start_time, end_time)
         
             initial_end = start_time + timedelta(seconds=10)  # 10 seconds from start
@@ -336,26 +390,36 @@ class MainWindow(QMainWindow):
             self._viewport_state.time_range_changed.connect(self._on_viewport_time_range_changed)
 
         # Update upload widget status
-        file_name = Path(self._current_file).name if self._current_file else "file"
-        status = f"✓ Successfully loaded: {file_name}"
-        if result.has_errors:
-            status += f" ({result.error_count} error(s))"
+        success_count = len(successful_files)
+        status = f"✓ Loaded {success_count} of {total_files} file(s)"
+        if aggregated_result.has_errors:
+            status += f" with {aggregated_result.error_count} error(s)"
         self.upload_widget.set_status(status)
 
         # Show load new file button
         self.load_new_button.setVisible(True)
 
         # Show success message for significant errors
-        if result.has_errors and result.error_count > 5:
+        if aggregated_result.has_errors and aggregated_result.error_count > 5:
             QMessageBox.warning(
                 self,
                 "Parsing Warnings",
-                f"File parsed with {result.error_count} error(s).\n"
-                f"Successfully parsed {result.data.entry_count} entries.\n\n"
+                f"Files parsed with {aggregated_result.error_count} error(s).\n"
+                f"Successfully parsed {aggregated_result.data.entry_count} entries.\n\n"
                 f"See the statistics panel for details."
             )
         print(f"TOTAL _on_parse_finished: {time.time() - start:.2f}s")
 
+
+        if failed_files:
+            failed_names = "\n".join(Path(path).name for path in failed_files)
+            QMessageBox.warning(
+                self,
+                "Parsing Warnings",
+                "Some files could not be parsed:\n\n"
+                f"{failed_names}\n\n"
+                "See the statistics panel for error details."
+            )
 
     def _on_parse_error(self, error_msg: str):
         """Handle parsing error.
@@ -369,21 +433,22 @@ class MainWindow(QMainWindow):
         self.signal_filter.clear()
         QMessageBox.critical(self, "Error", error_msg)
         self.upload_widget.set_status(
-            "📁 Drag and drop a log file here\nor click to browse"
+            "📁 Drag and drop log files here\nor click to browse"
         )
 
     def _load_new_file(self):
         """Reset the UI to load a new file."""
         self.upload_widget.set_status(
-            "📁 Drag and drop a log file here\nor click to browse"
+            "📁 Drag and drop log files here\nor click to browse"
         )
         self.stats_widget.clear()
         self.data_table.clear()
         self.waveform_view.clear()
         self.signal_filter.clear()
         self.load_new_button.setVisible(False)
-        self._current_file = None
-        self._current_parsed_log = None
+        self._current_files = []
+        self._merged_parsed_log = None
+        self._file_results = {}
         self._signal_data_list = None
         self._visible_signal_names = []
 
@@ -478,7 +543,7 @@ class MainWindow(QMainWindow):
         """Handle updates from the signal filter widget."""
         self._visible_signal_names = visible_names
 
-        if self._current_parsed_log is None:
+        if self._merged_parsed_log is None:
             return
 
         self.waveform_view.set_visible_signals(visible_names)
