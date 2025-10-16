@@ -130,7 +130,7 @@ class MainWindow(QMainWindow):
         # Main content splitter (stats on left, content on right)
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Left panel - statistics and filters
+        # Left panel - statistic and filters
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -139,12 +139,6 @@ class MainWindow(QMainWindow):
         self.stats_widget = StatsWidget()
         self.stats_widget.setMaximumWidth(350)
         left_layout.addWidget(self.stats_widget)
-
-        self.signal_filter = SignalFilterWidget()
-        self.signal_filter.visible_signals_changed.connect(self._on_visible_signals_changed)
-        left_layout.addWidget(self.signal_filter, stretch=1)
-
-        main_splitter.addWidget(left_panel)
 
         # Right panel - Vertical splitter for waveform and table
         right_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -209,7 +203,7 @@ class MainWindow(QMainWindow):
 
         action_layout.addWidget(self.load_new_button)
         action_layout.addStretch()
-        
+
         main_layout.addLayout(action_layout)
 
         # Apply overall styling
