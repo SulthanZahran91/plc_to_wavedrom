@@ -38,6 +38,7 @@ from .zoom_controls import ZoomControls
 from .pan_controls import PanControls
 from .time_range_selector import TimeRangeSelector
 from .signal_filter_widget import SignalFilterWidget
+from .signal_interval_dialog import SignalIntervalDialog
 
 
 class ParserThread(QThread):
@@ -124,6 +125,7 @@ class MainWindow(QMainWindow):
         self._merged_parsed_log = None
         self._file_results: Dict[str, ParseResult] = {}
         self._signal_data_list: list[SignalData] | None = None
+        self._signal_data_map: dict[str, SignalData] = {}
         self._visible_signal_names: list[str] = []
         self._parser_thread = None
         self._viewport_state = ViewportState(self)
@@ -185,6 +187,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self._stats_holder)
         self.signal_filter = SignalFilterWidget()
         self.signal_filter.visible_signals_changed.connect(self._on_visible_signals_changed)
+        self.signal_filter.plot_intervals_requested.connect(self._on_plot_change_intervals)
         left_layout.addWidget(self.signal_filter, stretch=1)
 
         self.main_splitter.addWidget(left_panel)
@@ -342,6 +345,7 @@ class MainWindow(QMainWindow):
         self.signal_filter.clear()
         self._merged_parsed_log = None
         self._signal_data_list = None
+        self._signal_data_map = {}
         self._visible_signal_names = []
         self.zoom_controls.set_enabled(False)
         self.pan_controls.set_enabled(False)
@@ -412,12 +416,14 @@ class MainWindow(QMainWindow):
                 "📁 Drag and drop log files here\nor click to browse"
             )
             self.signal_filter.clear()
+            self._signal_data_map = {}
             self.load_new_button.setVisible(True)
             self._finalize_parser_thread()
             return
 
         # Update UI with results
         self._signal_data_list = signal_data_list
+        self._signal_data_map = {signal.key: signal for signal in signal_data_list}
         self._visible_signal_names = [signal.key for signal in signal_data_list]
 
         self.waveform_view.set_data(aggregated_result.data, signal_data_list)
@@ -520,6 +526,7 @@ class MainWindow(QMainWindow):
         self._merged_parsed_log = None
         self._file_results = {}
         self._signal_data_list = None
+        self._signal_data_map = {}
         self._visible_signal_names = []
 
         # Disable navigation controls
@@ -715,6 +722,31 @@ class MainWindow(QMainWindow):
         new_end = new_start + visible_duration
 
         self._viewport_state.set_time_range(new_start, new_end)
+
+    def _on_plot_change_intervals(self, signal_key: str):
+        """Open the interval plot dialog for the selected signal."""
+        if not signal_key:
+            return
+
+        signal_data = self._signal_data_map.get(signal_key)
+        if signal_data is None:
+            QMessageBox.information(
+                self,
+                "Signal Not Available",
+                "The selected signal is no longer available. Please reload the data."
+            )
+            return
+
+        if not signal_data.states or len(signal_data.states) < 2:
+            QMessageBox.information(
+                self,
+                "No Transitions",
+                "This signal does not have enough transitions to plot change intervals."
+            )
+            return
+
+        dialog = SignalIntervalDialog(signal_data, self)
+        dialog.exec()
 
     def _on_visible_signals_changed(self, visible_names: list[str]):
         """Handle updates from the signal filter widget."""

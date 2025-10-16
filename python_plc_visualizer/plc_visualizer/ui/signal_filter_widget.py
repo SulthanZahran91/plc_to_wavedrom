@@ -42,6 +42,7 @@ class SignalFilterWidget(QWidget):
     """Widget providing rich filtering controls for signals."""
 
     visible_signals_changed = pyqtSignal(list)
+    plot_intervals_requested = pyqtSignal(str)
 
     DEBOUNCE_MS = 200
 
@@ -148,6 +149,11 @@ class SignalFilterWidget(QWidget):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Minimum
         ))
+        self.plot_intervals_btn = QPushButton("Plot Change Intervals")
+        self.plot_intervals_btn.setEnabled(False)
+        self.plot_intervals_btn.setToolTip("Select exactly one signal to plot transition gaps.")
+        self.plot_intervals_btn.clicked.connect(self._on_plot_intervals)
+        button_layout.addWidget(self.plot_intervals_btn)
         layout.addLayout(button_layout)
 
         # Signal list
@@ -202,6 +208,7 @@ class SignalFilterWidget(QWidget):
         
         # Emit empty list since nothing is selected
         self.visible_signals_changed.emit([])
+        self._update_plot_button()
 
 
     def clear(self):
@@ -217,6 +224,7 @@ class SignalFilterWidget(QWidget):
         self.count_label.setText("Showing 0 of 0 signals")
         self.count_label.setStyleSheet("padding: 4px; font-size: 11px; color: #666;")
         self.setEnabled(False)
+        self._update_plot_button()
 
     # Internal helpers ---------------------------------------------------
     def _apply_filters(self):
@@ -376,6 +384,16 @@ class SignalFilterWidget(QWidget):
         self.deselect_all_btn.setEnabled(any_filtered)
         self.save_preset_btn.setEnabled(bool(self._signals))
 
+    def _update_plot_button(self):
+        """Enable interval plotting only when a single signal is selected."""
+        single_selection = len(self._selected_signals) == 1
+        self.plot_intervals_btn.setEnabled(single_selection)
+        if single_selection:
+            key = next(iter(self._selected_signals))
+            self.plot_intervals_btn.setToolTip(f"Plot transition intervals for {key}")
+        else:
+            self.plot_intervals_btn.setToolTip("Select exactly one signal to plot transition gaps.")
+
     def _filters_active(self) -> bool:
         """Return True if any filter deviates from the default all-visible state."""
         if self._search_query.strip():
@@ -407,6 +425,7 @@ class SignalFilterWidget(QWidget):
             if info.key in self._selected_signals
         ]
         self.visible_signals_changed.emit(visible)
+        self._update_plot_button()
 
     def _reset_preset_combo(self):
         """Reset the preset combo box to default state."""
@@ -624,6 +643,13 @@ class SignalFilterWidget(QWidget):
         self._selected_signals = {info.key for info in self._signals}
         self._selected_devices = set(self._signals_by_device.keys())
         self._apply_filters()
+
+    def _on_plot_intervals(self):
+        """Handle request to plot change intervals for the current selection."""
+        if len(self._selected_signals) != 1:
+            return
+        key = next(iter(self._selected_signals))
+        self.plot_intervals_requested.emit(key)
 
     def _on_save_preset(self):
         name, ok = QInputDialog.getText(self, "Save Filter Preset", "Preset name:")
