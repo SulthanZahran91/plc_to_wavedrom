@@ -1,5 +1,7 @@
 """Main application window for PLC Log Visualizer."""
 
+import atexit
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from datetime import timedelta
 from typing import Dict, List
@@ -16,7 +18,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
 )
 
-from plc_visualizer.models import ParseResult
+from plc_visualizer.models import ParseResult, ParsedLog
 from plc_visualizer.parsers import parser_registry
 from plc_visualizer.utils.viewport_state import ViewportState
 from plc_visualizer.utils import (
@@ -37,8 +39,10 @@ from .signal_filter_widget import SignalFilterWidget
 class ParserThread(QThread):
     """Background thread for parsing one or more log files."""
 
-    finished = pyqtSignal(object, object)  # aggregated_result, per_file_results
+    finished = pyqtSignal(object, object, object)  # aggregated_result, per_file_results, signal_data_list
+    progress = pyqtSignal(int, int, str)  # current_index, total_files, file_path
     error = pyqtSignal(str)
+    _executor: ProcessPoolExecutor | None = None
 
     def __init__(self, file_paths: List[str], parent=None):
         super().__init__(parent)
@@ -48,14 +52,42 @@ class ParserThread(QThread):
         """Parse files in a background thread."""
         try:
             per_file_results: Dict[str, ParseResult] = {}
+            total_files = len(self.file_paths)
 
-            for file_path in self.file_paths:
+            for index, file_path in enumerate(self.file_paths, start=1):
                 per_file_results[file_path] = parser_registry.parse(file_path)
+                self.progress.emit(index, total_files, file_path)
 
             aggregated_result = merge_parse_results(per_file_results)
-            self.finished.emit(aggregated_result, per_file_results)
+            signal_data_list = []
+            if aggregated_result.success and aggregated_result.data:
+                signal_data_list = self._compute_signal_data(aggregated_result.data)
+
+            self.finished.emit(aggregated_result, per_file_results, signal_data_list)
         except Exception as e:
             self.error.emit(f"Failed to parse files: {str(e)}")
+
+    @classmethod
+    def _compute_signal_data(cls, parsed_log: ParsedLog):
+        """Compute waveform data, using a subprocess for heavy workloads."""
+        try:
+            entry_count = getattr(parsed_log, "entry_count", 0)
+            if entry_count and entry_count >= 10000:
+                if cls._executor is None:
+                    cls._executor = ProcessPoolExecutor(max_workers=1)
+                future = cls._executor.submit(process_signals_for_waveform, parsed_log)
+                return future.result()
+            return process_signals_for_waveform(parsed_log)
+        except Exception:
+            # Fallback to in-process computation if multiprocessing fails
+            return process_signals_for_waveform(parsed_log)
+
+    @classmethod
+    def shutdown_executor(cls):
+        """Dispose of the shared process pool."""
+        if cls._executor is not None:
+            cls._executor.shutdown(wait=False)
+            cls._executor = None
 
 
 class MainWindow(QMainWindow):
@@ -174,9 +206,10 @@ class MainWindow(QMainWindow):
         self.load_new_button = QPushButton("Load New File")
         self.load_new_button.clicked.connect(self._load_new_file)
         self.load_new_button.setVisible(False)
-        action_layout.addWidget(self.load_new_button)
 
+        action_layout.addWidget(self.load_new_button)
         action_layout.addStretch()
+        
         main_layout.addLayout(action_layout)
 
         # Apply overall styling
@@ -232,6 +265,18 @@ class MainWindow(QMainWindow):
 
     def _parse_files(self, file_paths: list[str]):
         """Parse the selected log files in a background thread."""
+        if self._parser_thread and self._parser_thread.isRunning():
+            QMessageBox.information(
+                self,
+                "Parsing In Progress",
+                "Please wait for the current parsing job to complete before starting a new one."
+            )
+            return
+
+        if self._parser_thread:
+            self._parser_thread.deleteLater()
+            self._parser_thread = None
+
         # Show progress bar
         self.progress_bar.setVisible(True)
         self.upload_widget.setEnabled(False)
@@ -239,6 +284,9 @@ class MainWindow(QMainWindow):
         self.upload_widget.set_status(
             f"📄 Parsing {len(file_paths)} file(s): {names}"
         )
+        self.progress_bar.setRange(0, len(file_paths))
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("Parsing files... %p%")
 
         # Clear previous results
         self.stats_widget.clear()
@@ -248,6 +296,8 @@ class MainWindow(QMainWindow):
         self._merged_parsed_log = None
         self._signal_data_list = None
         self._visible_signal_names = []
+        self.zoom_controls.set_enabled(False)
+        self.pan_controls.set_enabled(False)
 
         # Disconnect previous viewport listeners to avoid duplicates
         try:
@@ -263,21 +313,26 @@ class MainWindow(QMainWindow):
         self._parser_thread = ParserThread(file_paths, self)
         self._parser_thread.finished.connect(self._on_parse_finished)
         self._parser_thread.error.connect(self._on_parse_error)
+        self._parser_thread.progress.connect(self._on_parse_progress)
         self._parser_thread.start()
 
     def _on_parse_finished(
         self,
         aggregated_result: ParseResult,
         per_file_results: dict[str, ParseResult],
+        signal_data_list: list[SignalData],
     ):
         """Handle parsing completion.
 
         Args:
             aggregated_result: Combined ParseResult containing merged data/errors
             per_file_results: Mapping of file path to individual ParseResult
+            signal_data_list: Pre-processed signal data ready for visualization
         """
         # Hide progress bar
         self.progress_bar.setVisible(False)
+        self.progress_bar.reset()
+        self.progress_bar.setFormat("Parsing files... %p%")
         self.upload_widget.setEnabled(True)
 
         self._file_results = per_file_results
@@ -311,10 +366,10 @@ class MainWindow(QMainWindow):
             )
             self.signal_filter.clear()
             self.load_new_button.setVisible(True)
+            self._finalize_parser_thread()
             return
 
         # Update UI with results
-        signal_data_list = process_signals_for_waveform(aggregated_result.data)
         self._signal_data_list = signal_data_list
         self._visible_signal_names = [signal.key for signal in signal_data_list]
 
@@ -374,6 +429,7 @@ class MainWindow(QMainWindow):
                 f"{failed_names}\n\n"
                 "See the statistics panel for error details."
             )
+        self._finalize_parser_thread()
 
     def _on_parse_error(self, error_msg: str):
         """Handle parsing error.
@@ -388,6 +444,20 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Error", error_msg)
         self.upload_widget.set_status(
             "📁 Drag and drop log files here\nor click to browse"
+        )
+        self._finalize_parser_thread()
+        self.progress_bar.reset()
+        self.progress_bar.setFormat("Parsing files... %p%")
+
+    def _on_parse_progress(self, current: int, total: int, file_path: str):
+        """Update progress bar as files are parsed."""
+        if total <= 0:
+            return
+        self.progress_bar.setRange(0, total)
+        self.progress_bar.setValue(current)
+        filename = Path(file_path).name if file_path else ""
+        self.progress_bar.setFormat(
+            f"Parsing {current}/{total} file(s) - {filename}"
         )
 
     def _load_new_file(self):
@@ -409,6 +479,12 @@ class MainWindow(QMainWindow):
         # Disable navigation controls
         self.zoom_controls.set_enabled(False)
         self.pan_controls.set_enabled(False)
+
+    def _finalize_parser_thread(self):
+        """Release references to the parser thread."""
+        if self._parser_thread:
+            self._parser_thread.deleteLater()
+            self._parser_thread = None
 
     # Zoom control handlers
     def _on_zoom_in(self):
@@ -540,3 +616,6 @@ class MainWindow(QMainWindow):
                 self.pan_controls.set_scroll_position(position, visible_fraction)
             else:
                 self.pan_controls.set_scroll_position(0.0, visible_fraction)
+
+
+atexit.register(ParserThread.shutdown_executor)
