@@ -19,6 +19,10 @@ class BooleanRenderer(BaseRenderer):
         self.high_color = QColor("#4CAF50")  # Green for high
         self.low_color = QColor("#9E9E9E")   # Gray for low
         self.line_color = QColor("#212121")  # Dark line
+        self.transition_color = QColor("#FB8C00")  # Orange for transition markers
+
+        # Layout
+        self.padding = 12.0
 
     def render(
         self,
@@ -38,9 +42,8 @@ class BooleanRenderer(BaseRenderer):
             return items
 
         # Padding from top/bottom of track (increased for better spacing)
-        padding = 12.0
-        high_y = y_offset + padding
-        low_y = y_offset + self.signal_height - padding
+        high_y = y_offset + self.padding
+        low_y = y_offset + self.signal_height - self.padding
 
         # Create the waveform path
         path = QPainterPath()

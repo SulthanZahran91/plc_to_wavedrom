@@ -9,6 +9,7 @@ from PyQt6.QtCore import QRectF
 from plc_visualizer.models import SignalType
 from plc_visualizer.utils import SignalData
 from .renderers import BooleanRenderer, StateRenderer
+from .transition_marker_item import TransitionMarkerItem
 
 
 class SignalItem(QGraphicsItem):
@@ -53,6 +54,8 @@ class SignalItem(QGraphicsItem):
         # Graphics items
         self.path_items = []
         self.text_items = []
+        self.transition_items = []
+        self._active_transition_marker: TransitionMarkerItem | None = None
 
         self._create_items()
 
@@ -62,6 +65,8 @@ class SignalItem(QGraphicsItem):
         for item in self.path_items + self.text_items:
             if item.scene():
                 item.scene().removeItem(item)
+
+        self._clear_transition_markers()
 
         self.path_items.clear()
         self.text_items.clear()
@@ -106,6 +111,8 @@ class SignalItem(QGraphicsItem):
                 text_item.setPos(x, y)
 
                 self.text_items.append(text_item)
+
+        self._create_transition_markers()
 
     def boundingRect(self) -> QRectF:
         """Return the bounding rectangle (relative to item's position)."""
@@ -153,3 +160,99 @@ class SignalItem(QGraphicsItem):
         self.time_range = (start, end)
         self._create_items()
         self.update()
+
+    def _clear_transition_markers(self):
+        """Remove existing transition markers."""
+        for marker in self.transition_items:
+            if marker.scene():
+                marker.scene().removeItem(marker)
+
+        self.transition_items.clear()
+        self._active_transition_marker = None
+
+    def _create_transition_markers(self):
+        """Create clickable markers for value transitions."""
+        if not self.time_range:
+            return
+
+        clipped_states = self.renderer.clip_states(
+            self.signal_data.states,
+            self.time_range
+        )
+
+        if len(clipped_states) < 2:
+            return
+
+        padding = getattr(self.renderer, "padding", 12.0)
+        track_top = padding
+        track_bottom = self.renderer.signal_height - padding
+        marker_height = track_bottom - track_top
+
+        if marker_height <= 0:
+            return
+
+        marker_color = getattr(
+            self.renderer,
+            "transition_color",
+            QColor("#FB8C00")
+        )
+
+        prev_state = clipped_states[0]
+        for state in clipped_states[1:]:
+            if state.value == prev_state.value:
+                prev_state = state
+                continue
+
+            x_pos = self.renderer.time_to_x(
+                state.start_time,
+                self.time_range,
+                self.width
+            )
+
+            before_val = self._format_value(prev_state.value)
+            after_val = self._format_value(state.value)
+            time_text = self._format_timestamp(state.start_time)
+            tooltip_text = f"{time_text}\n{before_val} -> {after_val}"
+
+            marker = TransitionMarkerItem(
+                marker_height=marker_height,
+                color=marker_color,
+                tooltip_text=tooltip_text,
+                click_callback=self._on_transition_marker_clicked,
+                parent=self
+            )
+            marker.setToolTip(tooltip_text)
+            marker.setPos(x_pos, track_top)
+
+            marker.transition_data = {
+                "timestamp": state.start_time,
+                "before": prev_state.value,
+                "after": state.value
+            }
+
+            self.transition_items.append(marker)
+            prev_state = state
+
+    def _on_transition_marker_clicked(self, marker: TransitionMarkerItem):
+        """Toggle active highlight when a marker is clicked."""
+        if self._active_transition_marker is marker:
+            marker.set_active(False)
+            self._active_transition_marker = None
+            return
+
+        if self._active_transition_marker:
+            self._active_transition_marker.set_active(False)
+
+        marker.set_active(True)
+        self._active_transition_marker = marker
+
+    def _format_value(self, value) -> str:
+        """Convert transition value to display label."""
+        if isinstance(self.renderer, BooleanRenderer):
+            return "True (HIGH)" if bool(value) else "False (LOW)"
+        return str(value)
+
+    @staticmethod
+    def _format_timestamp(timestamp: datetime) -> str:
+        """Format timestamp with millisecond precision."""
+        return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]

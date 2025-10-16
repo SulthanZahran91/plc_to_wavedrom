@@ -19,6 +19,10 @@ class StateRenderer(BaseRenderer):
         self.box_color = QColor("#2196F3")      # Blue boxes
         self.line_color = QColor("#1976D2")     # Darker blue outline
         self.text_color = QColor("#FFFFFF")     # White text
+        self.transition_color = QColor("#FFCA28")  # Amber markers for transitions
+
+        # Layout
+        self.padding = 12.0
 
     def render(
         self,
@@ -38,9 +42,8 @@ class StateRenderer(BaseRenderer):
             return items
 
         # Padding (increased for better spacing)
-        padding = 12.0
-        box_top = y_offset + padding
-        box_height = self.signal_height - (2 * padding)
+        box_top = y_offset + self.padding
+        box_height = self.signal_height - (2 * self.padding)
 
         for state in clipped_states:
             x_start = self.time_to_x(state.start_time, time_range, width)
@@ -84,9 +87,8 @@ class StateRenderer(BaseRenderer):
         if not clipped_states:
             return text_items
 
-        padding = 12.0
-        box_top = y_offset + padding
-        box_height = self.signal_height - (2 * padding)
+        box_top = y_offset + self.padding
+        box_height = self.signal_height - (2 * self.padding)
 
         for state in clipped_states:
             x_start = self.time_to_x(state.start_time, time_range, width)

@@ -156,8 +156,14 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.progress_bar)
 
         # Main content splitter (stats on left, content on right)
-        main_splitter = QSplitter(Qt.Orientation.Horizontal)
-
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setHandleWidth(10)
+        self.main_splitter.setStyleSheet("""
+            QSplitter::handle:horizontal {
+                background-color: #d7dee4;
+                margin: 0px;
+            }
+        """)
         # Left panel - statistic and filters
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
@@ -181,11 +187,17 @@ class MainWindow(QMainWindow):
         self.signal_filter.visible_signals_changed.connect(self._on_visible_signals_changed)
         left_layout.addWidget(self.signal_filter, stretch=1)
 
-        main_splitter.addWidget(left_panel)
+        self.main_splitter.addWidget(left_panel)
 
         # Right panel - Vertical splitter for waveform and table
-        right_splitter = QSplitter(Qt.Orientation.Vertical)
-
+        self.right_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.right_splitter.setHandleWidth(10)
+        self.right_splitter.setStyleSheet("""
+            QSplitter::handle:vertical {
+                background-color: #d7dee4;
+                margin: 0px;
+            }
+        """)
         # Waveform section with controls
         waveform_container = QWidget()
         waveform_layout = QVBoxLayout(waveform_container)
@@ -221,17 +233,19 @@ class MainWindow(QMainWindow):
         self.time_range_selector.time_range_changed.connect(self._on_time_range_selector_changed)
         waveform_layout.addWidget(self.time_range_selector)
 
-        right_splitter.addWidget(waveform_container)
+        self.right_splitter.addWidget(waveform_container)
 
         # Data table (bottom)
         self.data_table = DataTableWidget()
-        right_splitter.addWidget(self.data_table)
+        self.right_splitter.addWidget(self.data_table)
 
         # Set initial vertical split (60% waveform, 40% table)
-        # right_splitter.setSizes([600, 400])
-
-        main_splitter.addWidget(right_splitter)
-        main_layout.addWidget(main_splitter, stretch=1)
+        self.right_splitter.setSizes([600, 400])
+        self.main_splitter.addWidget(self.right_splitter)
+        self.main_splitter.setStretchFactor(0, 0)
+        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setSizes([300, 900])
+        main_layout.addWidget(self.main_splitter, stretch=1)
 
         # Bottom action bar
         action_layout = QHBoxLayout()
