@@ -5,6 +5,8 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from datetime import timedelta
 from typing import Dict, List
+import multiprocessing as mp
+from multiprocessing.context import BaseContext
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -43,6 +45,7 @@ class ParserThread(QThread):
     progress = pyqtSignal(int, int, str)  # current_index, total_files, file_path
     error = pyqtSignal(str)
     _executor: ProcessPoolExecutor | None = None
+    _mp_context: BaseContext | None = None
 
     def __init__(self, file_paths: List[str], parent=None):
         super().__init__(parent)
@@ -74,7 +77,18 @@ class ParserThread(QThread):
             entry_count = getattr(parsed_log, "entry_count", 0)
             if entry_count and entry_count >= 10000:
                 if cls._executor is None:
-                    cls._executor = ProcessPoolExecutor(max_workers=1)
+                    if cls._mp_context is None:
+                        try:
+                            cls._mp_context = mp.get_context("spawn")
+                        except ValueError:
+                            cls._mp_context = mp.get_context()
+                    try:
+                        cls._executor = ProcessPoolExecutor(
+                            max_workers=1,
+                            mp_context=cls._mp_context,
+                        )
+                    except TypeError:
+                        cls._executor = ProcessPoolExecutor(max_workers=1)
                 future = cls._executor.submit(process_signals_for_waveform, parsed_log)
                 return future.result()
             return process_signals_for_waveform(parsed_log)
@@ -102,6 +116,9 @@ class MainWindow(QMainWindow):
         self._visible_signal_names: list[str] = []
         self._parser_thread = None
         self._viewport_state = ViewportState(self)
+        self._stats_holder = None
+        self._stats_holder_layout = None
+        self._left_layout = None
         self._init_ui()
         
 
@@ -135,10 +152,25 @@ class MainWindow(QMainWindow):
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(12)
+        self._left_layout = left_layout
 
-        self.stats_widget = StatsWidget()
+        self._stats_holder = QWidget()
+        self._stats_holder.destroyed.connect(self._on_stats_holder_destroyed)
+        self._stats_holder_layout = QVBoxLayout(self._stats_holder)
+        self._stats_holder_layout.setContentsMargins(0, 0, 0, 0)
+        self._stats_holder_layout.setSpacing(0)
+
+        self.stats_widget = StatsWidget(self._stats_holder)
         self.stats_widget.setMaximumWidth(350)
-        left_layout.addWidget(self.stats_widget)
+        self.stats_widget.destroyed.connect(self._on_stats_widget_destroyed)
+        self._stats_holder_layout.addWidget(self.stats_widget)
+
+        left_layout.addWidget(self._stats_holder)
+        self.signal_filter = SignalFilterWidget()
+        self.signal_filter.visible_signals_changed.connect(self._on_visible_signals_changed)
+        left_layout.addWidget(self.signal_filter, stretch=1)
+
+        main_splitter.addWidget(left_panel)
 
         # Right panel - Vertical splitter for waveform and table
         right_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -188,10 +220,6 @@ class MainWindow(QMainWindow):
         # right_splitter.setSizes([600, 400])
 
         main_splitter.addWidget(right_splitter)
-
-        # Set initial horizontal split (roughly 30% stats/filters, 70% content)
-        # main_splitter.setSizes([320, 680])
-
         main_layout.addWidget(main_splitter, stretch=1)
 
         # Bottom action bar
@@ -283,7 +311,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setFormat("Parsing files... %p%")
 
         # Clear previous results
-        self.stats_widget.clear()
+        self._invoke_stats_widget("clear")
         self.data_table.clear()
         self.waveform_view.clear()
         self.signal_filter.clear()
@@ -340,7 +368,7 @@ class MainWindow(QMainWindow):
             path for path, result in per_file_results.items() if not result.success
         ]
 
-        self.stats_widget.update_stats(aggregated_result)
+        self._invoke_stats_widget("update_stats", aggregated_result)
 
         if not aggregated_result.success:
             # No data parsed successfully
@@ -459,7 +487,6 @@ class MainWindow(QMainWindow):
         self.upload_widget.set_status(
             "📁 Drag and drop log files here\nor click to browse"
         )
-        self.stats_widget.clear()
         self.data_table.clear()
         self.waveform_view.clear()
         self.signal_filter.clear()
@@ -473,6 +500,93 @@ class MainWindow(QMainWindow):
         # Disable navigation controls
         self.zoom_controls.set_enabled(False)
         self.pan_controls.set_enabled(False)
+        self._invoke_stats_widget("clear")
+
+    def _invoke_stats_widget(self, method_name: str, *args):
+        """Safely invoke a method on the stats widget."""
+        widget = self.stats_widget
+        if widget is None:
+            widget = self._create_stats_widget()
+        if widget is None:
+            return
+
+        try:
+            getattr(widget, method_name)(*args)
+        except RuntimeError:
+            self.stats_widget = None
+            widget = self._create_stats_widget()
+            if widget is not None:
+                getattr(widget, method_name)(*args)
+
+    def _create_stats_widget(self) -> StatsWidget | None:
+        """Create a fresh stats widget, attaching it to the holder layout."""
+        holder = self._ensure_stats_holder()
+        layout = self._stats_holder_layout
+
+        if holder is None or layout is None:
+            return None
+
+        # Remove any existing stats widget instance
+        old_widget = self.stats_widget
+        if old_widget is not None:
+            try:
+                index = layout.indexOf(old_widget)
+                if index != -1:
+                    layout.takeAt(index)
+            except RuntimeError:
+                index = -1
+            try:
+                old_widget.setParent(None)
+            except RuntimeError:
+                pass
+            try:
+                old_widget.deleteLater()
+            except RuntimeError:
+                pass
+
+        widget = StatsWidget(holder)
+        widget.setMaximumWidth(350)
+        widget.destroyed.connect(self._on_stats_widget_destroyed)
+        layout.insertWidget(0, widget)
+        self.stats_widget = widget
+        return widget
+
+    def _ensure_stats_holder(self) -> QWidget | None:
+        """Ensure the stats holder widget and layout exist."""
+        holder = self._stats_holder
+
+        if holder is None:
+            holder = QWidget()
+            holder.destroyed.connect(self._on_stats_holder_destroyed)
+            self._stats_holder = holder
+
+            layout = QVBoxLayout(holder)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+            self._stats_holder_layout = layout
+
+            if self._left_layout is not None:
+                try:
+                    self._left_layout.insertWidget(0, holder)
+                except RuntimeError:
+                    pass
+        elif self._stats_holder_layout is None:
+            layout = QVBoxLayout(holder)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+            self._stats_holder_layout = layout
+
+        return self._stats_holder
+
+    def _on_stats_widget_destroyed(self, _obj=None):
+        """Reset stats widget reference when underlying QObject is destroyed."""
+        self.stats_widget = None
+
+    def _on_stats_holder_destroyed(self, _obj=None):
+        """Reset stats holder references when destroyed."""
+        self._stats_holder = None
+        self._stats_holder_layout = None
+        self.stats_widget = None
 
     def _finalize_parser_thread(self):
         """Release references to the parser thread."""
