@@ -93,7 +93,11 @@ class WaveformScene(QGraphicsScene):
         Args:
             width: New width in pixels
         """
-        self.scene_width = max(width, 500.0)  # Minimum width
+        new_width = max(width, 500.0)  # Minimum width
+        if abs(self.scene_width - new_width) < 0.5:
+            return  # No significant change; avoid unnecessary redraws
+
+        self.scene_width = new_width
         waveform_width = max(self.scene_width - self.LABEL_WIDTH, 100.0)
 
         # Update grid lines
@@ -119,7 +123,7 @@ class WaveformScene(QGraphicsScene):
 
         # Update scene rect
         self.setSceneRect(0, 0, self.scene_width, self.scene_height)
-        
+
         alive_rows: list[SignalRowItem] = []
         for row in self.row_items:
             if sip.isdeleted(row):

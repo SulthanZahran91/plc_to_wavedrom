@@ -2,7 +2,7 @@
 
 import sys
 
-from PyQt6.QtCore import QTimer, Qt, QSize
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import QApplication
 
 from plc_visualizer.ui import MainWindow
@@ -13,26 +13,27 @@ def _show_window(window: MainWindow, app: QApplication):
     window.show()  # ensure initial buffer matches configure
 
     platform_name = app.platformName().lower()
+    print(f"[Startup] Qt platform: {platform_name}")
     if "wayland" in platform_name:
-        def _maximize_on_wayland():
+        def _size_without_maximizing():
             handle = window.windowHandle()
             screen = window.screen()
+            print(f"[Startup] (Wayland) handle={handle}, screen={screen}")
             if handle and screen:
-                geometry = screen.availableGeometry()
-                handle.setMaximumSize(geometry.size())
-                handle.resize(geometry.size())
-                window.setGeometry(geometry)
-                window.setWindowState(Qt.WindowState.WindowMaximized)
-                # Allow user resizing after the compositor settles.
-                def _clear_limits(h=handle):
-                    if h:
-                        h.setMaximumSize(QSize())
-                QTimer.singleShot(100, _clear_limits)
+                geom = screen.availableGeometry()
+                margin_w = min(max(geom.width() // 12, 48), geom.width())
+                margin_h = min(max(geom.height() // 10, 96), geom.height())
+                target = geom.adjusted(0, 0, -margin_w, -margin_h)
+                print(f"[Startup] (Wayland) applying relaxed geometry: {target}")
+                window.setMaximumSize(target.width(), target.height())
+                window.setMinimumSize(960, 720)
+                window.setGeometry(target)
+                if handle:
+                    handle.setMaximumSize(target.size())
             else:
-                window.setWindowState(Qt.WindowState.WindowMaximized)
+                print("[Startup] (Wayland) missing handle/screen; leaving default size")
 
-        # Delay until the window handle exists and compositor has configured us.
-        QTimer.singleShot(0, _maximize_on_wayland)
+        QTimer.singleShot(0, _size_without_maximizing)
     else:
         window.showMaximized()
 

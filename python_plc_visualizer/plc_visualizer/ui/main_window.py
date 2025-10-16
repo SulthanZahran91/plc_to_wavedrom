@@ -9,6 +9,7 @@ import multiprocessing as mp
 from multiprocessing.context import BaseContext
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QResizeEvent
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -18,6 +19,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QMessageBox,
     QPushButton,
+    QApplication,
 )
 
 from plc_visualizer.models import ParseResult, ParsedLog
@@ -109,6 +111,15 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        platform_name = ""
+        app = QApplication.instance()
+        if app:
+            try:
+                platform_name = app.platformName().lower()
+            except Exception:
+                platform_name = ""
+        self._is_wayland = "wayland" in platform_name
+        print(f"[MainWindow] Initialized on platform '{platform_name}', is_wayland={self._is_wayland}")
         self._current_files: list[str] = []
         self._merged_parsed_log = None
         self._file_results: Dict[str, ParseResult] = {}
@@ -529,6 +540,7 @@ class MainWindow(QMainWindow):
         # Remove any existing stats widget instance
         old_widget = self.stats_widget
         if old_widget is not None:
+            print("[Stats] Removing existing stats widget before recreation")
             try:
                 index = layout.indexOf(old_widget)
                 if index != -1:
@@ -544,6 +556,7 @@ class MainWindow(QMainWindow):
             except RuntimeError:
                 pass
 
+        print("[Stats] Creating new StatsWidget instance")
         widget = StatsWidget(holder)
         widget.setMaximumWidth(350)
         widget.destroyed.connect(self._on_stats_widget_destroyed)
@@ -556,6 +569,7 @@ class MainWindow(QMainWindow):
         holder = self._stats_holder
 
         if holder is None:
+            print("[Stats] Creating stats holder widget")
             holder = QWidget()
             holder.destroyed.connect(self._on_stats_holder_destroyed)
             self._stats_holder = holder
@@ -570,11 +584,14 @@ class MainWindow(QMainWindow):
                     self._left_layout.insertWidget(0, holder)
                 except RuntimeError:
                     pass
+                else:
+                    print(f"[Stats] Inserted stats holder into left layout. Current count: {self._left_layout.count()}")
         elif self._stats_holder_layout is None:
             layout = QVBoxLayout(holder)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(0)
             self._stats_holder_layout = layout
+            print("[Stats] Recreated stats holder layout")
 
         return self._stats_holder
 
@@ -587,6 +604,14 @@ class MainWindow(QMainWindow):
         self._stats_holder = None
         self._stats_holder_layout = None
         self.stats_widget = None
+
+    def resizeEvent(self, event: QResizeEvent):
+        """Log resize information (useful for debugging Wayland sizing)."""
+        super().resizeEvent(event)
+        if self._is_wayland:
+            handle = self.windowHandle()
+            handle_size = handle.size() if handle else None
+            print(f"[MainWindow] resizeEvent old={event.oldSize()}, new={event.size()}, handle_size={handle_size}")
 
     def _finalize_parser_thread(self):
         """Release references to the parser thread."""

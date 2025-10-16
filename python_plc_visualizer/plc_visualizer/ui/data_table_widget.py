@@ -115,12 +115,11 @@ class DataTableWidget(QWidget):
 
         # Configure header
         header = self.table_view.horizontalHeader()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(100)
+        header.setDefaultSectionSize(150)
+        for column in range(len(self.model.COLUMNS)):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
 
         # Style
         self.table_view.setStyleSheet("""
