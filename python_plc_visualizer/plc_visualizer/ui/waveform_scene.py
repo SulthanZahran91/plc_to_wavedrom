@@ -2,13 +2,28 @@
 
 from datetime import datetime
 
-from PyQt6.QtWidgets import QGraphicsScene
-from PyQt6.QtCore import QRect
+from PySide6.QtWidgets import QGraphicsScene
+from PySide6.QtCore import QRect
 
 try:
-    from PyQt6 import sip  # PyQt6-packaged sip
+    import shiboken6 as sip  # PySide6 uses shiboken6
+    # For compatibility, create isdeleted from isValid
+    # shiboken6 uses isValid instead of isDeleted
+    if not hasattr(sip, 'isdeleted'):
+        if hasattr(sip, 'isValid'):
+            sip.isdeleted = lambda obj: not sip.isValid(obj)
+        else:
+            sip.isdeleted = lambda obj: False
 except ImportError:  # pragma: no cover
-    import sip  # Fallback for environments exposing sip at top level
+    try:
+        import sip  # Fallback for standalone sip
+    except ImportError:
+        # Create a dummy sip module if neither is available
+        class _DummySip:
+            @staticmethod
+            def isdeleted(obj):
+                return False
+        sip = _DummySip()
 
 from plc_visualizer.models import ParsedLog
 from plc_visualizer.utils import SignalData, process_signals_for_waveform

@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable, List
 
-from PyQt6.QtCore import Qt, QRectF, QSize, QPointF
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QRectF, QSize, QPointF
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QHeaderView,

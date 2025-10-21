@@ -1,6 +1,6 @@
 """Zoom controls widget for waveform visualization."""
 
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
     QVBoxLayout,
@@ -9,8 +9,8 @@ from PyQt6.QtWidgets import (
     QLabel,
     QToolButton,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIcon
 from .ClickableLabel import ClickableLabel
 
 class ZoomControls(QWidget):
@@ -23,10 +23,10 @@ class ZoomControls(QWidget):
         zoom_level_changed: Emitted when slider is moved (float value)
     """
 
-    zoom_in_clicked = pyqtSignal()
-    zoom_out_clicked = pyqtSignal()
-    reset_zoom_clicked = pyqtSignal()
-    zoom_level_changed = pyqtSignal(float)
+    zoom_in_clicked = Signal()
+    zoom_out_clicked = Signal()
+    reset_zoom_clicked = Signal()
+    zoom_level_changed = Signal(float)
 
     def __init__(self, parent=None):
         super().__init__(parent)

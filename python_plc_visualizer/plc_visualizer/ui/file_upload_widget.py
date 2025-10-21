@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPalette
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPalette
+from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QLabel,
@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 class FileUploadWidget(QWidget):
     """Widget for uploading log files via button or drag-and-drop."""
 
-    files_selected = pyqtSignal(list)  # Emits list of file paths when selected
+    files_selected = Signal(list)  # Emits list of file paths when selected
 
     def __init__(self, parent=None):
         super().__init__(parent)

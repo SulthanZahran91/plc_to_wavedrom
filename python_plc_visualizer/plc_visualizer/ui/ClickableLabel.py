@@ -1,11 +1,11 @@
-from PyQt6.QtWidgets import QLabel, QInputDialog
-from PyQt6.QtCore import pyqtSignal
+from PySide6.QtWidgets import QLabel, QInputDialog
+from PySide6.QtCore import Signal
 
 
 
 
 class ClickableLabel(QLabel):
-    zoom_changed = pyqtSignal(float)
+    zoom_changed = Signal(float)
 
     def mousePressEvent(self, e):
         # parse current text like "Zoom: 1.0x"

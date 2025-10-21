@@ -2,8 +2,8 @@
 
 import sys
 
-from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtWidgets import QApplication
 
 from plc_visualizer.ui import MainWindow
 

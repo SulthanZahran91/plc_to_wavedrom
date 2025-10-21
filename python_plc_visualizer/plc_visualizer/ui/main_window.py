@@ -8,9 +8,9 @@ from typing import Dict, List
 import multiprocessing as mp
 from multiprocessing.context import BaseContext
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QResizeEvent
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QResizeEvent
+from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
     QVBoxLayout,
@@ -44,9 +44,9 @@ from .signal_interval_dialog import SignalIntervalDialog
 class ParserThread(QThread):
     """Background thread for parsing one or more log files."""
 
-    finished = pyqtSignal(object, object, object)  # aggregated_result, per_file_results, signal_data_list
-    progress = pyqtSignal(int, int, str)  # current_index, total_files, file_path
-    error = pyqtSignal(str)
+    finished = Signal(object, object, object)  # aggregated_result, per_file_results, signal_data_list
+    progress = Signal(int, int, str)  # current_index, total_files, file_path
+    error = Signal(str)
     _executor: ProcessPoolExecutor | None = None
     _mp_context: BaseContext | None = None
 

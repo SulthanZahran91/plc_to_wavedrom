@@ -1,9 +1,9 @@
 # signal_row_item.py
-from PyQt6.QtWidgets import QGraphicsObject
-from PyQt6.QtCore import QRectF, QPointF, pyqtSignal
+from PySide6.QtWidgets import QGraphicsObject
+from PySide6.QtCore import QRectF, QPointF, Signal
 
 class SignalRowItem(QGraphicsObject):
-    dropped = pyqtSignal(object)
+    dropped = Signal(object)
 
     def __init__(self, label_item, waveform_item, row_height: float,
                  top_margin: float, total_width: float, parent=None):

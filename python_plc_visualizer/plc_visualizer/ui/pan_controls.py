@@ -1,7 +1,7 @@
 """Pan controls widget for time navigation."""
 
 from datetime import datetime
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
     QPushButton,
@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QScrollBar,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTime
+from PySide6.QtCore import Qt, Signal, QTime
 
 
 class PanControls(QWidget):
@@ -22,10 +22,10 @@ class PanControls(QWidget):
         scroll_changed: Emitted when scrollbar position changes (0.0 to 1.0)
     """
 
-    pan_left_clicked = pyqtSignal()
-    pan_right_clicked = pyqtSignal()
-    jump_to_time = pyqtSignal(datetime)
-    scroll_changed = pyqtSignal(float)
+    pan_left_clicked = Signal()
+    pan_right_clicked = Signal()
+    jump_to_time = Signal(datetime)
+    scroll_changed = Signal(float)
 
     def __init__(self, parent=None):
         super().__init__(parent)

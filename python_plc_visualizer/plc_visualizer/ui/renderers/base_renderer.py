@@ -3,8 +3,8 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from PyQt6.QtGui import QPainterPath, QPen, QBrush, QColor
-from PyQt6.QtCore import QRectF
+from PySide6.QtGui import QPainterPath, QPen, QBrush, QColor
+from PySide6.QtCore import QRectF
 
 from plc_visualizer.utils import SignalData, SignalState
 

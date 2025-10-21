@@ -1,7 +1,7 @@
 
-from PyQt6.QtWidgets import QTableView, QApplication, QMenu
-from PyQt6.QtCore import Qt, QModelIndex
-from PyQt6.QtGui import  QAction
+from PySide6.QtWidgets import QTableView, QApplication, QMenu
+from PySide6.QtCore import Qt, QModelIndex
+from PySide6.QtGui import  QAction
 
 class CopyPasteTableView(QTableView):
     def __init__(self, parent=None):

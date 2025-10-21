@@ -1,8 +1,8 @@
 """Graphics item for rendering signal name labels."""
 
-from PyQt6.QtWidgets import QGraphicsItem
-from PyQt6.QtGui import QPainter, QColor, QPen, QFont
-from PyQt6.QtCore import QRectF, Qt
+from PySide6.QtWidgets import QGraphicsItem
+from PySide6.QtGui import QPainter, QColor, QPen, QFont
+from PySide6.QtCore import QRectF, Qt
 
 
 class SignalLabelItem(QGraphicsItem):
