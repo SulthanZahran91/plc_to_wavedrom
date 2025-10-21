@@ -243,6 +243,10 @@ class IntegratedMapViewer(QMainWindow):
             self._current_time = self._start_time
             self.update_time_position(self._current_time)
             self._update_media_controls()
+            # Update placeholder to show actual timestamp format
+            self.media_controls.txt_time.setPlaceholderText(
+                f"e.g., {self._start_time.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
 
     def _update_media_controls(self):
         """Update media control display based on current state."""
@@ -255,12 +259,10 @@ class IntegratedMapViewer(QMainWindow):
             progress = (self._current_time - self._start_time).total_seconds() / duration
             self.media_controls.media_slider.setValue(int(progress * 100))
 
-        # Update time label
+        # Update time label with actual timestamps
         if self._current_time:
-            current_seconds = (self._current_time - self._start_time).total_seconds()
-            total_seconds = duration
             self.media_controls.lbl_current_time.setText(
-                f"{self._format_time(current_seconds)} / {self._format_time(total_seconds)}"
+                f"{self._format_datetime(self._current_time)} / {self._format_datetime(self._end_time)}"
             )
 
     def _format_time(self, seconds: float) -> str:
@@ -269,6 +271,10 @@ class IntegratedMapViewer(QMainWindow):
         minutes = int((seconds % 3600) // 60)
         secs = seconds % 60
         return f"{hours:02d}:{minutes:02d}:{secs:06.3f}"
+
+    def _format_datetime(self, dt: datetime) -> str:
+        """Format datetime as YYYY-MM-DD HH:MM:SS.mmm."""
+        return dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
     def _toggle_play(self):
         """Toggle play/pause state."""
@@ -374,34 +380,50 @@ class IntegratedMapViewer(QMainWindow):
 
         time_text = self.media_controls.txt_time.text().strip()
         try:
-            # Parse time in format HH:MM:SS or HH:MM:SS.mmm
-            parts = time_text.split(':')
-            if len(parts) == 3:
-                hours = int(parts[0])
-                minutes = int(parts[1])
-                seconds = float(parts[2])
-                total_seconds = hours * 3600 + minutes * 60 + seconds
+            # Try to parse as full datetime first (YYYY-MM-DD HH:MM:SS or YYYY-MM-DD HH:MM:SS.mmm)
+            target_time = None
+            if ' ' in time_text:
+                try:
+                    if '.' in time_text:
+                        target_time = datetime.strptime(time_text, "%Y-%m-%d %H:%M:%S.%f")
+                    else:
+                        target_time = datetime.strptime(time_text, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    pass
 
-                # Check if within range
-                duration = (self._end_time - self._start_time).total_seconds()
-                if 0 <= total_seconds <= duration:
-                    self._current_time = self._start_time + timedelta(seconds=total_seconds)
-                    self.update_time_position(self._current_time)
-                    self._update_media_controls()
-                    self.media_controls.txt_time.clear()
+            # If not a full datetime, parse as relative time HH:MM:SS
+            if target_time is None:
+                parts = time_text.split(':')
+                if len(parts) == 3:
+                    hours = int(parts[0])
+                    minutes = int(parts[1])
+                    seconds = float(parts[2])
+                    total_seconds = hours * 3600 + minutes * 60 + seconds
+                    target_time = self._start_time + timedelta(seconds=total_seconds)
                 else:
-                    QMessageBox.warning(
-                        self,
-                        "Invalid Time",
-                        f"Time must be between 00:00:00 and {self._format_time(duration)}"
-                    )
+                    raise ValueError("Invalid format")
+
+            # Check if within range
+            if self._start_time <= target_time <= self._end_time:
+                self._current_time = target_time
+                self.update_time_position(self._current_time)
+                self._update_media_controls()
+                self.media_controls.txt_time.clear()
             else:
-                raise ValueError("Invalid format")
+                QMessageBox.warning(
+                    self,
+                    "Invalid Time",
+                    f"Time must be between:\n{self._format_datetime(self._start_time)}\nand\n{self._format_datetime(self._end_time)}"
+                )
         except ValueError:
             QMessageBox.warning(
                 self,
                 "Invalid Time",
-                "Please enter time in format HH:MM:SS or HH:MM:SS.mmm"
+                "Please enter time in one of these formats:\n"
+                "- YYYY-MM-DD HH:MM:SS.mmm (absolute)\n"
+                "- YYYY-MM-DD HH:MM:SS (absolute)\n"
+                "- HH:MM:SS.mmm (relative from start)\n"
+                "- HH:MM:SS (relative from start)"
             )
 
     def load_map_file(self):
