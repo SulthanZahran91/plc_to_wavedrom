@@ -132,12 +132,16 @@ class MainWindow(QMainWindow):
         self._stats_holder = None
         self._stats_holder_layout = None
         self._left_layout = None
+        self._map_viewer_window = None
         self._init_ui()
         
 
     def _init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("PLC Log Visualizer")
+
+        # Menu bar
+        self._create_menu_bar()
 
         # Central widget
         central_widget = QWidget()
@@ -282,6 +286,94 @@ class MainWindow(QMainWindow):
                 background-color: #0D47A1;
             }
         """)
+
+    def _create_menu_bar(self):
+        """Create the menu bar with tools menu."""
+        menu_bar = self.menuBar()
+
+        # Tools menu
+        tools_menu = menu_bar.addMenu("&Tools")
+
+        # Map Viewer action
+        map_viewer_action = tools_menu.addAction("Open Map &Viewer")
+        map_viewer_action.triggered.connect(self._open_map_viewer)
+
+    def _open_map_viewer(self):
+        """Launch the map viewer in a separate window."""
+        try:
+            from plc_visualizer.ui.integrated_map_viewer import IntegratedMapViewer
+            from pathlib import Path
+
+            # Check if window already exists and is visible
+            if self._map_viewer_window is not None:
+                try:
+                    self._map_viewer_window.show()
+                    self._map_viewer_window.raise_()
+                    self._map_viewer_window.activateWindow()
+                    return
+                except RuntimeError:
+                    # Window was deleted
+                    self._map_viewer_window = None
+
+            # Find default files
+            base_path = Path(__file__).parent.parent.parent / "tools" / "map_viewer"
+            xml_file = base_path / "test.xml"
+            yaml_file = base_path / "mappings_and_rules.yaml"
+
+            # Create window with signal data if available
+            if xml_file.exists() and yaml_file.exists():
+                self._map_viewer_window = IntegratedMapViewer(
+                    signal_data_list=self._signal_data_list,
+                    xml_path=str(xml_file),
+                    yaml_cfg=str(yaml_file),
+                    parent=self
+                )
+            else:
+                # Create without files - user can load them manually
+                self._map_viewer_window = IntegratedMapViewer(
+                    signal_data_list=self._signal_data_list,
+                    parent=self
+                )
+
+            # Connect viewport changes to update map viewer
+            if self._signal_data_list:
+                self._viewport_state.time_range_changed.connect(
+                    self._on_map_viewer_time_update
+                )
+
+            self._map_viewer_window.show()
+
+            # Update map to current time position if available
+            if self._viewport_state.visible_time_range:
+                start_time, _ = self._viewport_state.visible_time_range
+                self._map_viewer_window.update_time_position(start_time)
+
+        except ImportError as e:
+            QMessageBox.warning(
+                self,
+                "Map Viewer Not Available",
+                f"Could not load the map viewer module:\n{str(e)}"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Opening Map Viewer",
+                f"An error occurred while opening the map viewer:\n{str(e)}"
+            )
+
+    def _on_map_viewer_time_update(self, start_time, _end_time):
+        """Update map viewer when waveform time changes.
+
+        Args:
+            start_time: New visible start time
+            _end_time: New visible end time (unused)
+        """
+        if self._map_viewer_window is not None:
+            try:
+                self._map_viewer_window.update_time_position(start_time)
+            except RuntimeError:
+                # Window was deleted
+                self._map_viewer_window = None
 
     def _on_files_selected(self, file_paths: list[str]):
         """Handle selection of one or more files."""
@@ -429,6 +521,14 @@ class MainWindow(QMainWindow):
         self.waveform_view.set_data(aggregated_result.data, signal_data_list)
         self.data_table.set_data(aggregated_result.data)
         self.signal_filter.set_signals(signal_data_list)
+
+        # Update map viewer if it's open
+        if self._map_viewer_window is not None:
+            try:
+                self._map_viewer_window.set_signal_data(signal_data_list)
+            except RuntimeError:
+                # Window was deleted
+                self._map_viewer_window = None
 
         # Initialize viewport state with the time range
         if aggregated_result.data and aggregated_result.data.time_range:
