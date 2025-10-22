@@ -7,7 +7,7 @@ from PySide6.QtGui import QPainter, QColor, QPen, QFont, QBrush
 from PySide6.QtCore import QRectF
 
 from plc_visualizer.models import SignalType
-from plc_visualizer.utils import SignalData
+from plc_visualizer.utils import SignalData, SignalState
 from .renderers import BooleanRenderer, StateRenderer
 from .transition_marker_item import TransitionMarkerItem
 
@@ -20,6 +20,7 @@ class SignalItem(QGraphicsItem):
     """
 
     SIGNAL_HEIGHT = 60.0  # Increased from 40.0 for better visibility
+    MAX_TRANSITION_MARKERS = 1500
 
     def __init__(
         self,
@@ -56,6 +57,9 @@ class SignalItem(QGraphicsItem):
         self.text_items = []
         self.transition_items = []
         self._active_transition_marker: TransitionMarkerItem | None = None
+        self._last_clipped_states: list | None = None
+        self._last_render_range: tuple[datetime, datetime] | None = None
+        self._last_render_width: float | None = None
 
         self._create_items()
 
@@ -71,12 +75,22 @@ class SignalItem(QGraphicsItem):
         self.path_items.clear()
         self.text_items.clear()
 
+        clipped_states = self.renderer.clip_states(self.signal_data, self.time_range)
+        self._last_clipped_states = clipped_states
+
+        if not clipped_states:
+            self._clear_transition_markers()
+            self._last_render_range = self.time_range
+            self._last_render_width = self.width
+            return
+
         # Render the waveform using full width (no offset needed)
         rendered = self.renderer.render(
             self.signal_data,
             self.time_range,
-            self.width,  # Use full width
-            0  # y_offset is 0 since position is set by setPos()
+            self.width,
+            0,
+            clipped_states=clipped_states
         )
 
         # Create path items (no offset - starts at x=0 of this item)
@@ -95,7 +109,8 @@ class SignalItem(QGraphicsItem):
                 self.signal_data,
                 self.time_range,
                 self.width,
-                0  # y_offset is 0 since position is set by setPos()
+                0,
+                clipped_states=clipped_states
             )
 
             font = QFont("Arial", 10)
@@ -112,7 +127,9 @@ class SignalItem(QGraphicsItem):
 
                 self.text_items.append(text_item)
 
-        self._create_transition_markers()
+        self._create_transition_markers(clipped_states)
+        self._last_render_range = self.time_range
+        self._last_render_width = self.width
 
     def boundingRect(self) -> QRectF:
         """Return the bounding rectangle (relative to item's position)."""
@@ -139,15 +156,17 @@ class SignalItem(QGraphicsItem):
 
     def update_time_range(self, time_range: tuple[datetime, datetime]):
         """Update the time range and redraw."""
-        self.time_range = time_range
-        self._create_items()
-        self.update()
+        if not time_range:
+            return
+        self.set_time_range(*time_range)
 
     def update_width(self, width: float):
         """Update the width and redraw."""
+        if abs(self.width - width) < 0.5:
+            return
+        self.prepareGeometryChange()
         self.width = width
         self._create_items()
-        self.prepareGeometryChange()
         self.update()
 
     def set_time_range(self, start: datetime, end: datetime):
@@ -157,7 +176,16 @@ class SignalItem(QGraphicsItem):
             start: New start time
             end: New end time
         """
-        self.time_range = (start, end)
+        new_range = (start, end)
+        if (
+            self._last_render_range == new_range
+            and self._last_render_width is not None
+            and abs(self._last_render_width - self.width) < 0.5
+        ):
+            self.time_range = new_range
+            return
+
+        self.time_range = new_range
         self._create_items()
         self.update()
 
@@ -170,15 +198,10 @@ class SignalItem(QGraphicsItem):
         self.transition_items.clear()
         self._active_transition_marker = None
 
-    def _create_transition_markers(self):
+    def _create_transition_markers(self, clipped_states: list):
         """Create clickable markers for value transitions."""
-        if not self.time_range:
+        if not self.time_range or not clipped_states:
             return
-
-        clipped_states = self.renderer.clip_states(
-            self.signal_data.states,
-            self.time_range
-        )
 
         if len(clipped_states) < 2:
             return
@@ -197,19 +220,42 @@ class SignalItem(QGraphicsItem):
             QColor("#FB8C00")
         )
 
+        # Pre-compute scaling for marker placement
+        anchor = self.signal_data.time_anchor or self.time_range[0]
+        range_start_offset = (self.time_range[0] - anchor).total_seconds()
+        range_duration = max((self.time_range[1] - self.time_range[0]).total_seconds(), 1e-12)
+        pixel_factor = self.width / range_duration
+
+        transitions: list[tuple[SignalState, SignalState]] = []
         prev_state = clipped_states[0]
         for state in clipped_states[1:]:
             if state.value == prev_state.value:
                 prev_state = state
                 continue
+            transitions.append((prev_state, state))
+            prev_state = state
 
-            x_pos = self.renderer.time_to_x(
-                state.start_time,
-                self.time_range,
-                self.width
+        if not transitions:
+            return
+
+        total_transitions = len(transitions)
+        stride = 1
+        if total_transitions > self.MAX_TRANSITION_MARKERS:
+            stride = max(1, total_transitions // self.MAX_TRANSITION_MARKERS)
+
+        for index, (before_state, state) in enumerate(transitions):
+            if stride > 1 and index % stride != 0 and index not in (0, total_transitions - 1):
+                continue
+
+            x_pos = max(
+                0.0,
+                min(
+                    self.width,
+                    (state.start_offset - range_start_offset) * pixel_factor
+                )
             )
 
-            before_val = self._format_value(prev_state.value)
+            before_val = self._format_value(before_state.value)
             after_val = self._format_value(state.value)
             time_text = self._format_timestamp(state.start_time)
             tooltip_text = f"{time_text}\n{before_val} -> {after_val}"
@@ -226,12 +272,11 @@ class SignalItem(QGraphicsItem):
 
             marker.transition_data = {
                 "timestamp": state.start_time,
-                "before": prev_state.value,
+                "before": before_state.value,
                 "after": state.value
             }
 
             self.transition_items.append(marker)
-            prev_state = state
 
     def _on_transition_marker_clicked(self, marker: TransitionMarkerItem):
         """Toggle active highlight when a marker is clicked."""

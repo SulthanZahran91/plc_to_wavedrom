@@ -1,6 +1,7 @@
 """Base renderer interface for signal visualization."""
 
 from abc import ABC, abstractmethod
+from bisect import bisect_left, bisect_right
 from datetime import datetime
 
 from PySide6.QtGui import QPainterPath, QPen, QBrush, QColor
@@ -82,73 +83,99 @@ class BaseRenderer(ABC):
 
     def clip_states(
         self,
-        states: list[SignalState],
+        signal_data: SignalData,
         time_range: tuple[datetime, datetime]
     ) -> list[SignalState]:
         """Clip signal states to the visible time range.
 
         Args:
-            states: Full list of signal states
+            signal_data: Signal data containing states and cached offsets
             time_range: Visible time range (start, end)
 
         Returns:
             List of SignalState objects covering the visible range
         """
-        start_time, end_time = time_range
-
-        if start_time >= end_time or not states:
+        states = signal_data.states
+        if not states or not time_range:
             return []
 
-        clipped: list[SignalState] = []
+        start_time, end_time = time_range
+        if start_time >= end_time:
+            return []
+
+        anchor = signal_data.time_anchor or start_time
+        start_seconds = (start_time - anchor).total_seconds()
+        end_seconds = (end_time - anchor).total_seconds()
+
+        start_offsets = signal_data.start_offsets
+        end_offsets = signal_data.end_offsets
+
+        start_idx = 0
+        end_idx = len(states)
         last_value_before_range = None
 
-        for state in states:
-            if state.end_time <= start_time:
-                last_value_before_range = state.value
-                continue
+        if start_offsets and end_offsets:
+            start_idx = bisect_right(end_offsets, start_seconds)
+            if start_idx > 0:
+                last_value_before_range = states[start_idx - 1].value
+            if start_idx >= len(states):
+                filler = SignalState(start_time=start_time, end_time=end_time, value=states[-1].value)
+                filler.start_offset = start_seconds
+                filler.end_offset = end_seconds
+                return [filler]
 
-            if state.start_time >= end_time:
-                break
+            end_idx = bisect_left(start_offsets, end_seconds, lo=start_idx)
+            if end_idx <= start_idx:
+                end_idx = min(start_idx + 1, len(states))
 
+        candidates = states[start_idx:end_idx]
+
+        clipped: list[SignalState] = []
+        for state in candidates:
             segment_start = max(state.start_time, start_time)
             segment_end = min(state.end_time, end_time)
 
             if segment_end <= segment_start:
                 continue
 
-            clipped.append(SignalState(
+            clipped_state = SignalState(
                 start_time=segment_start,
                 end_time=segment_end,
                 value=state.value
-            ))
+            )
+            clipped_state.start_offset = max(state.start_offset, start_seconds)
+            clipped_state.end_offset = min(state.end_offset, end_seconds)
+            clipped.append(clipped_state)
 
         if not clipped:
-            value = last_value_before_range
-            if value is None:
-                value = states[0].value
-
-            return [SignalState(
-                start_time=start_time,
-                end_time=end_time,
-                value=value
-            )]
+            value = last_value_before_range if last_value_before_range is not None else states[0].value
+            filler = SignalState(start_time=start_time, end_time=end_time, value=value)
+            filler.start_offset = start_seconds
+            filler.end_offset = end_seconds
+            return [filler]
 
         first = clipped[0]
         if first.start_time > start_time:
             filler_value = last_value_before_range if last_value_before_range is not None else first.value
-            clipped.insert(0, SignalState(
+            filler = SignalState(
                 start_time=start_time,
                 end_time=first.start_time,
                 value=filler_value
-            ))
+            )
+            filler.start_offset = start_seconds
+            filler.end_offset = (first.start_time - anchor).total_seconds()
+            clipped.insert(0, filler)
 
         last = clipped[-1]
         if last.end_time < end_time:
-            clipped.append(SignalState(
+            filler = SignalState(
                 start_time=last.end_time,
                 end_time=end_time,
                 value=last.value
-            ))
+            )
+            filler.start_offset = (last.end_time - anchor).total_seconds()
+            filler.end_offset = end_seconds
+            clipped.append(filler)
 
         return clipped
 

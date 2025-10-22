@@ -5,7 +5,7 @@ from datetime import datetime
 from PySide6.QtGui import QPainterPath, QColor
 from PySide6.QtCore import Qt
 
-from plc_visualizer.utils import SignalData
+from plc_visualizer.utils import SignalData, SignalState
 from .base_renderer import BaseRenderer
 
 
@@ -29,14 +29,16 @@ class BooleanRenderer(BaseRenderer):
         signal_data: SignalData,
         time_range: tuple[datetime, datetime],
         width: float,
-        y_offset: float = 0.0
+        y_offset: float = 0.0,
+        clipped_states: list[SignalState] | None = None
     ) -> list[tuple[QPainterPath, object, object]]:
         """Render boolean signal as square wave.
 
         High = top of track, Low = bottom of track
         """
         items = []
-        clipped_states = self.clip_states(signal_data.states, time_range)
+        if clipped_states is None:
+            clipped_states = self.clip_states(signal_data, time_range)
 
         if not clipped_states:
             return items
@@ -45,17 +47,25 @@ class BooleanRenderer(BaseRenderer):
         high_y = y_offset + self.padding
         low_y = y_offset + self.signal_height - self.padding
 
+        anchor = signal_data.time_anchor or time_range[0]
+        range_start_offset = (time_range[0] - anchor).total_seconds()
+        range_duration = max((time_range[1] - time_range[0]).total_seconds(), 1e-12)
+        pixel_factor = width / range_duration
+
         # Create the waveform path
         path = QPainterPath()
         first_state = clipped_states[0]
+        first_x = max(0.0, min(width, (first_state.start_offset - range_start_offset) * pixel_factor))
         current_y = high_y if first_state.value else low_y
-        current_x = 0.0
+        current_x = first_x
 
-        path.moveTo(0.0, current_y)
+        path.moveTo(first_x, current_y)
+
+        fill_path = QPainterPath()
 
         for state in clipped_states:
-            x_start = self.time_to_x(state.start_time, time_range, width)
-            x_end = self.time_to_x(state.end_time, time_range, width)
+            x_start = max(0.0, min(width, (state.start_offset - range_start_offset) * pixel_factor))
+            x_end = max(0.0, min(width, (state.end_offset - range_start_offset) * pixel_factor))
 
             state_y = high_y if state.value else low_y
 
@@ -70,15 +80,11 @@ class BooleanRenderer(BaseRenderer):
             current_x = x_end
             current_y = state_y
 
-        # Add the waveform line
-        pen = self.create_pen(self.line_color, 2.0)
-        items.append((path, pen, None))
-
         # Add filled regions for high states
         for state in clipped_states:
             if state.value:  # High state
-                x_start = self.time_to_x(state.start_time, time_range, width)
-                x_end = self.time_to_x(state.end_time, time_range, width)
+                x_start = max(0.0, min(width, (state.start_offset - range_start_offset) * pixel_factor))
+                x_end = max(0.0, min(width, (state.end_offset - range_start_offset) * pixel_factor))
 
                 # Create filled rectangle for high state
                 box_width = x_end - x_start
@@ -86,20 +92,17 @@ class BooleanRenderer(BaseRenderer):
                 if box_width <= 0:
                     continue
 
-                fill_path = QPainterPath()
-                fill_path.addRect(
-                    x_start,
-                    high_y,
-                    box_width,
-                    low_y - high_y
-                )
+                fill_path.addRect(x_start, high_y, box_width, low_y - high_y)
 
                 # Semi-transparent green fill
-                fill_color = QColor(self.high_color)
-                fill_color.setAlpha(50)
-                brush = self.create_brush(fill_color)
-                pen = self.create_pen(Qt.GlobalColor.transparent, 0)
+        if not fill_path.isEmpty():
+            fill_color = QColor(self.high_color)
+            fill_color.setAlpha(50)
+            brush = self.create_brush(fill_color)
+            items.append((fill_path, self.create_pen(Qt.GlobalColor.transparent, 0), brush))
 
-                items.append((fill_path, pen, brush))
+        # Add the waveform line
+        pen = self.create_pen(self.line_color, 2.0)
+        items.append((path, pen, None))
 
         return items
