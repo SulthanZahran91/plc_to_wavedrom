@@ -10,6 +10,7 @@ from .waveform_data import (
 )
 from .merge import merge_parsed_logs, merge_parse_results
 from .chunk_manager import ChunkManager, create_chunked_log
+from .viewport_state import ViewportState
 
 __all__ = [
     'SignalData',
@@ -22,4 +23,5 @@ __all__ = [
     'merge_parse_results',
     'ChunkManager',
     'create_chunked_log',
+    'ViewportState',
 ]

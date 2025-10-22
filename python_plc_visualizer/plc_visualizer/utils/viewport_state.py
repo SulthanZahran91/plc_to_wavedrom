@@ -295,27 +295,40 @@ class ViewportState(QObject):
         elif start == end:
             start -= timedelta(seconds=1)
 
-
-        # Constrain to full range
         start = max(start, self._full_start)
         end = min(end, self._full_end)
 
-        # Calculate visible duration
-        visible_duration = end - start
-        if visible_duration <= timedelta(0):
-            # fix zero/negative span
-            end = start + timedelta(microseconds=1)
-            visible_duration = end - start
+        full_duration_seconds = (self._full_end - self._full_start).total_seconds()
+        max_allowed = min(self.max_visible_duration, full_duration_seconds)
+        min_allowed = min(self.min_visible_duration, full_duration_seconds)
+        if max_allowed <= 0:
+            return
 
-        visible_duration_seconds = visible_duration.total_seconds()
+        requested_seconds = (end - start).total_seconds()
+        if requested_seconds <= 0:
+            requested_seconds = min_allowed
 
-        # Constrain to duration limits
-        visible_duration_seconds = max(self.min_visible_duration,
-                                       min(visible_duration_seconds, self.max_visible_duration))
+        requested_seconds = min(requested_seconds, max_allowed)
+        requested_seconds = max(requested_seconds, min_allowed)
 
-        self._visible_start = start
-        self._visible_end = end
-        self._visible_duration_seconds = visible_duration_seconds
+        new_duration = timedelta(seconds=requested_seconds)
+        new_start = start
+        new_end = new_start + new_duration
+
+        if new_end > self._full_end:
+            new_end = self._full_end
+            new_start = new_end - new_duration
+
+        if new_start < self._full_start:
+            new_start = self._full_start
+            new_end = new_start + new_duration
+            if new_end > self._full_end:
+                new_end = self._full_end
+                new_start = new_end - new_duration
+
+        self._visible_start = new_start
+        self._visible_end = new_end
+        self._visible_duration_seconds = (new_end - new_start).total_seconds()
 
         self.time_range_changed.emit(self._visible_start, self._visible_end)
         self.duration_changed.emit(self._visible_duration_seconds)

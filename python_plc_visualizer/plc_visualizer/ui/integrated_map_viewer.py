@@ -64,18 +64,17 @@ class IntegratedMapViewer(QMainWindow):
         self.parser = MapParser()
         self.state_model: Optional[UnitStateModel] = None
 
-        # Load map if paths provided
         if xml_path and yaml_cfg:
             self._load_map(xml_path, yaml_cfg)
         else:
-            # Try to find default files
-            self._try_load_defaults()
+            if not self._try_load_defaults():
+                self._prompt_for_map_files()
 
         # Calculate time range for media controls (after UI is built)
         if self._signal_data_list:
             self._update_time_range()
 
-    def _try_load_defaults(self):
+    def _try_load_defaults(self) -> bool:
         """Try to load default map files."""
         base_path = Path(__file__).parent.parent.parent / "tools" / "map_viewer"
         xml_file = base_path / "test.xml"
@@ -83,6 +82,47 @@ class IntegratedMapViewer(QMainWindow):
 
         if xml_file.exists() and yaml_file.exists():
             self._load_map(str(xml_file), str(yaml_file))
+            return True
+        return False
+
+    def _prompt_for_map_files(self):
+        """Prompt the user to choose map files interactively."""
+        xml_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Map XML File",
+            "",
+            "XML Files (*.xml);;All Files (*)"
+        )
+
+        if not xml_path:
+            QMessageBox.information(
+                self,
+                "Map Viewer",
+                "No XML file selected. The viewer will remain blank until a file is loaded."
+            )
+            return
+
+        base_path = Path(xml_path).parent
+        default_yaml = base_path / "mappings_and_rules.yaml"
+
+        if default_yaml.exists():
+            yaml_path = str(default_yaml)
+        else:
+            yaml_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Select YAML Configuration",
+                str(base_path),
+                "YAML Files (*.yaml *.yml);;All Files (*)"
+            )
+            if not yaml_path:
+                QMessageBox.information(
+                    self,
+                    "Map Viewer",
+                    "No YAML configuration selected. The viewer cannot load without mappings."
+                )
+                return
+
+        self._load_map(xml_path, yaml_path)
 
     def _load_map(self, xml_path: str, yaml_cfg: str):
         """Load and initialize the map.

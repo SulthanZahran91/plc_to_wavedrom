@@ -3,28 +3,26 @@
 import atexit
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from datetime import timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional
 import multiprocessing as mp
 from multiprocessing.context import BaseContext
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
+    QApplication,
+    QInputDialog,
     QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QSplitter,
-    QProgressBar,
     QMessageBox,
     QPushButton,
-    QApplication,
+    QProgressBar,
+    QVBoxLayout,
+    QWidget,
+    QGridLayout,
 )
 
 from plc_visualizer.models import ParseResult, ParsedLog
 from plc_visualizer.parsers import parser_registry
-from plc_visualizer.utils.viewport_state import ViewportState
 from plc_visualizer.utils import (
     SignalData,
     merge_parse_results,
@@ -32,13 +30,9 @@ from plc_visualizer.utils import (
 )
 from .file_upload_widget import FileUploadWidget
 from .stats_widget import StatsWidget
-from .data_table_widget import DataTableWidget
-from .waveform_view import WaveformView
-from .zoom_controls import ZoomControls
-from .pan_controls import PanControls
-from .time_range_selector import TimeRangeSelector
-from .signal_filter_widget import SignalFilterWidget
 from .signal_interval_dialog import SignalIntervalDialog
+from .timing_diagram_window import TimingDiagramWindow
+from .log_table_window import LogTableWindow
 
 
 class ParserThread(QThread):
@@ -121,152 +115,89 @@ class MainWindow(QMainWindow):
                 platform_name = ""
         self._is_wayland = "wayland" in platform_name
         print(f"[MainWindow] Initialized on platform '{platform_name}', is_wayland={self._is_wayland}")
+
         self._current_files: list[str] = []
-        self._merged_parsed_log = None
+        self._merged_parsed_log: Optional[ParsedLog] = None
         self._file_results: Dict[str, ParseResult] = {}
-        self._signal_data_list: list[SignalData] | None = None
+        self._signal_data_list: list[SignalData] = []
         self._signal_data_map: dict[str, SignalData] = {}
-        self._visible_signal_names: list[str] = []
-        self._parser_thread = None
-        self._viewport_state = ViewportState(self)
-        self._stats_holder = None
-        self._stats_holder_layout = None
-        self._left_layout = None
+        self._parser_thread: Optional[ParserThread] = None
+
+        self._timing_window: Optional[TimingDiagramWindow] = None
+        self._table_window: Optional[LogTableWindow] = None
         self._map_viewer_window = None
+
+        self.stats_widget: Optional[StatsWidget] = None
+
         self._init_ui()
-        
 
     def _init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("PLC Log Visualizer")
 
-        # Menu bar
         self._create_menu_bar()
 
-        # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(18, 18, 18, 18)
+        main_layout.setSpacing(16)
 
-        # File upload section
         self.upload_widget = FileUploadWidget()
         self.upload_widget.files_selected.connect(self._on_files_selected)
         main_layout.addWidget(self.upload_widget)
 
-        # Progress bar (initially hidden)
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)  # Indeterminate progress
+        self.progress_bar.setRange(0, 0)
         self.progress_bar.setVisible(False)
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setFormat("Parsing files... %p%")
         main_layout.addWidget(self.progress_bar)
 
-        # Main content splitter (stats on left, content on right)
-        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.main_splitter.setHandleWidth(10)
-        self.main_splitter.setStyleSheet("""
-            QSplitter::handle:horizontal {
-                background-color: #d7dee4;
-                margin: 0px;
-            }
-        """)
-        # Left panel - statistic and filters
-        left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(12)
-        self._left_layout = left_layout
+        stats_container = QWidget()
+        stats_layout = QVBoxLayout(stats_container)
+        stats_layout.setContentsMargins(0, 0, 0, 0)
+        stats_layout.setSpacing(0)
 
-        self._stats_holder = QWidget()
-        self._stats_holder.destroyed.connect(self._on_stats_holder_destroyed)
-        self._stats_holder_layout = QVBoxLayout(self._stats_holder)
-        self._stats_holder_layout.setContentsMargins(0, 0, 0, 0)
-        self._stats_holder_layout.setSpacing(0)
+        self.stats_widget = StatsWidget(stats_container)
+        self.stats_widget.setMaximumWidth(420)
+        stats_layout.addWidget(self.stats_widget)
 
-        self.stats_widget = StatsWidget(self._stats_holder)
-        self.stats_widget.setMaximumWidth(350)
-        self.stats_widget.destroyed.connect(self._on_stats_widget_destroyed)
-        self._stats_holder_layout.addWidget(self.stats_widget)
+        main_layout.addWidget(stats_container, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        left_layout.addWidget(self._stats_holder)
-        self.signal_filter = SignalFilterWidget()
-        self.signal_filter.visible_signals_changed.connect(self._on_visible_signals_changed)
-        self.signal_filter.plot_intervals_requested.connect(self._on_plot_change_intervals)
-        left_layout.addWidget(self.signal_filter, stretch=1)
+        buttons_container = QWidget()
+        buttons_layout = QGridLayout(buttons_container)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setHorizontalSpacing(18)
+        buttons_layout.setVerticalSpacing(16)
 
-        self.main_splitter.addWidget(left_panel)
+        self.timing_button = QPushButton("Open Timing Diagram")
+        self.timing_button.clicked.connect(self._open_timing_diagram_window)
+        buttons_layout.addWidget(self.timing_button, 0, 0)
 
-        # Right panel - Vertical splitter for waveform and table
-        self.right_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.right_splitter.setHandleWidth(10)
-        self.right_splitter.setStyleSheet("""
-            QSplitter::handle:vertical {
-                background-color: #d7dee4;
-                margin: 0px;
-            }
-        """)
-        # Waveform section with controls
-        waveform_container = QWidget()
-        waveform_layout = QVBoxLayout(waveform_container)
-        waveform_layout.setContentsMargins(0, 0, 0, 0)
-        waveform_layout.setSpacing(5)
+        self.table_button = QPushButton("Open Log Table")
+        self.table_button.clicked.connect(self._open_log_table_window)
+        buttons_layout.addWidget(self.table_button, 0, 1)
 
-        # Zoom controls
-        self.zoom_controls = ZoomControls()
-        self.zoom_controls.zoom_in_clicked.connect(self._on_zoom_in)
-        self.zoom_controls.zoom_out_clicked.connect(self._on_zoom_out)
-        self.zoom_controls.reset_zoom_clicked.connect(self._on_reset_zoom)
-        self.zoom_controls.duration_changed.connect(self._on_duration_slider_changed)
-        self.zoom_controls.set_enabled(False)
-        waveform_layout.addWidget(self.zoom_controls)
+        self.map_button = QPushButton("Open Map Viewer")
+        self.map_button.clicked.connect(self._open_map_viewer)
+        buttons_layout.addWidget(self.map_button, 1, 0)
 
-        # Waveform view
-        self.waveform_view = WaveformView()
-        self.waveform_view.set_viewport_state(self._viewport_state)
-        self.waveform_view.wheel_zoom.connect(self._on_wheel_zoom)
-        waveform_layout.addWidget(self.waveform_view, stretch=1)
+        self.interval_button = QPushButton("Plot Signal Intervals")
+        self.interval_button.clicked.connect(self._open_signal_interval_dialog)
+        buttons_layout.addWidget(self.interval_button, 1, 1)
 
-        # Pan controls
-        self.pan_controls = PanControls()
-        self.pan_controls.pan_left_clicked.connect(self._on_pan_left)
-        self.pan_controls.pan_right_clicked.connect(self._on_pan_right)
-        self.pan_controls.jump_to_time.connect(self._on_jump_to_time)
-        self.pan_controls.scroll_changed.connect(self._on_scroll_changed)
-        self.pan_controls.set_enabled(False)
-        waveform_layout.addWidget(self.pan_controls)
+        for button in (
+            self.timing_button,
+            self.table_button,
+            self.map_button,
+            self.interval_button,
+        ):
+            button.setMinimumWidth(200)
 
-        # Time range selector
-        self.time_range_selector = TimeRangeSelector()
-        self.time_range_selector.time_range_changed.connect(self._on_time_range_selector_changed)
-        waveform_layout.addWidget(self.time_range_selector)
+        main_layout.addWidget(buttons_container, alignment=Qt.AlignmentFlag.AlignHCenter)
+        main_layout.addStretch()
 
-        self.right_splitter.addWidget(waveform_container)
-
-        # Data table (bottom)
-        self.data_table = DataTableWidget()
-        self.right_splitter.addWidget(self.data_table)
-
-        # Set initial vertical split (60% waveform, 40% table)
-        self.right_splitter.setSizes([600, 400])
-        self.main_splitter.addWidget(self.right_splitter)
-        self.main_splitter.setStretchFactor(0, 0)
-        self.main_splitter.setStretchFactor(1, 1)
-        self.main_splitter.setSizes([300, 900])
-        main_layout.addWidget(self.main_splitter, stretch=1)
-
-        # Bottom action bar
-        action_layout = QHBoxLayout()
-
-        self.load_new_button = QPushButton("Load New File")
-        self.load_new_button.clicked.connect(self._load_new_file)
-        self.load_new_button.setVisible(False)
-
-        action_layout.addWidget(self.load_new_button)
-        action_layout.addStretch()
-
-        main_layout.addLayout(action_layout)
-
-        # Apply overall styling
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #ffffff;
@@ -285,26 +216,113 @@ class MainWindow(QMainWindow):
             QPushButton:pressed {
                 background-color: #0D47A1;
             }
+            QPushButton:disabled {
+                background-color: #BDBDBD;
+            }
         """)
+        self._update_navigation_buttons(False)
+
+    def _update_navigation_buttons(self, has_data: bool):
+        """Enable or disable navigation buttons based on parsed data availability."""
+        self.timing_button.setEnabled(has_data)
+        self.table_button.setEnabled(has_data)
+        self.interval_button.setEnabled(has_data)
+        # Map viewer can open without parsed data so keep it enabled
+        self.map_button.setEnabled(True)
 
     def _create_menu_bar(self):
         """Create the menu bar with tools menu."""
         menu_bar = self.menuBar()
-
-        # Tools menu
         tools_menu = menu_bar.addMenu("&Tools")
 
-        # Map Viewer action
+        timing_action = tools_menu.addAction("Open &Timing Diagram")
+        timing_action.triggered.connect(self._open_timing_diagram_window)
+
+        table_action = tools_menu.addAction("Open &Log Table")
+        table_action.triggered.connect(self._open_log_table_window)
+
         map_viewer_action = tools_menu.addAction("Open Map &Viewer")
         map_viewer_action.triggered.connect(self._open_map_viewer)
+
+        interval_action = tools_menu.addAction("Plot &Signal Intervals")
+        interval_action.triggered.connect(self._open_signal_interval_dialog)
+
+    def _open_timing_diagram_window(self):
+        """Launch or focus the timing diagram window."""
+        if self._timing_window is not None:
+            try:
+                self._timing_window.show()
+                self._timing_window.raise_()
+                self._timing_window.activateWindow()
+                return
+            except RuntimeError:
+                self._timing_window = None
+
+        self._timing_window = TimingDiagramWindow(self)
+        self._timing_window.set_interval_request_handler(self._open_signal_interval_for_key)
+        self._timing_window.destroyed.connect(self._on_timing_window_destroyed)
+
+        if self._merged_parsed_log:
+            self._timing_window.set_data(self._merged_parsed_log, self._signal_data_list)
+        else:
+            self._timing_window.clear()
+
+        if self._map_viewer_window is not None:
+            try:
+                self._timing_window.viewport_state.time_range_changed.connect(self._on_map_viewer_time_update)
+            except (RuntimeError, TypeError):
+                pass
+
+        self._timing_window.show()
+        self._timing_window.raise_()
+        self._timing_window.activateWindow()
+
+        if self._map_viewer_window is not None:
+            visible_range = self._timing_window.viewport_state.visible_time_range
+            if visible_range:
+                start_time, _ = visible_range
+                try:
+                    self._map_viewer_window.update_time_position(start_time)
+                except RuntimeError:
+                    self._map_viewer_window = None
+
+    def _on_timing_window_destroyed(self, _obj=None):
+        """Reset timing window reference when it is closed."""
+        self._timing_window = None
+
+    def _open_log_table_window(self):
+        """Launch or focus the log table window."""
+        if self._table_window is not None:
+            try:
+                self._table_window.show()
+                self._table_window.raise_()
+                self._table_window.activateWindow()
+                return
+            except RuntimeError:
+                self._table_window = None
+
+        self._table_window = LogTableWindow(self)
+        self._table_window.set_interval_request_handler(self._open_signal_interval_for_key)
+        self._table_window.destroyed.connect(self._on_table_window_destroyed)
+
+        if self._merged_parsed_log:
+            self._table_window.set_data(self._merged_parsed_log, self._signal_data_list)
+        else:
+            self._table_window.clear()
+
+        self._table_window.show()
+        self._table_window.raise_()
+        self._table_window.activateWindow()
+
+    def _on_table_window_destroyed(self, _obj=None):
+        """Reset table window reference when it is closed."""
+        self._table_window = None
 
     def _open_map_viewer(self):
         """Launch the map viewer in a separate window."""
         try:
             from plc_visualizer.ui.integrated_map_viewer import IntegratedMapViewer
-            from pathlib import Path
 
-            # Check if window already exists and is visible
             if self._map_viewer_window is not None:
                 try:
                     self._map_viewer_window.show()
@@ -312,41 +330,45 @@ class MainWindow(QMainWindow):
                     self._map_viewer_window.activateWindow()
                     return
                 except RuntimeError:
-                    # Window was deleted
                     self._map_viewer_window = None
 
-            # Find default files
             base_path = Path(__file__).parent.parent.parent / "tools" / "map_viewer"
-            xml_file = base_path / "test.xml"
-            yaml_file = base_path / "mappings_and_rules.yaml"
+            xml_file = None
+            yaml_file = None
 
-            # Create window with signal data if available
-            if xml_file.exists() and yaml_file.exists():
-                self._map_viewer_window = IntegratedMapViewer(
-                    signal_data_list=self._signal_data_list,
-                    xml_path=str(xml_file),
-                    yaml_cfg=str(yaml_file),
-                    parent=self
-                )
-            else:
-                # Create without files - user can load them manually
-                self._map_viewer_window = IntegratedMapViewer(
-                    signal_data_list=self._signal_data_list,
-                    parent=self
-                )
+            if base_path.exists():
+                candidate_xml = base_path / "test.xml"
+                candidate_yaml = base_path / "mappings_and_rules.yaml"
+                if candidate_xml.exists():
+                    xml_file = candidate_xml
+                if candidate_yaml.exists():
+                    yaml_file = candidate_yaml
 
-            # Connect viewport changes to update map viewer
-            if self._signal_data_list:
-                self._viewport_state.time_range_changed.connect(
-                    self._on_map_viewer_time_update
-                )
+            self._map_viewer_window = IntegratedMapViewer(
+                signal_data_list=self._signal_data_list,
+                xml_path=str(xml_file) if xml_file else None,
+                yaml_cfg=str(yaml_file) if yaml_file else None,
+                parent=self,
+            )
+
+            if self._timing_window is not None:
+                try:
+                    self._timing_window.viewport_state.time_range_changed.connect(self._on_map_viewer_time_update)
+                except (RuntimeError, TypeError):
+                    pass
 
             self._map_viewer_window.show()
+            self._map_viewer_window.raise_()
+            self._map_viewer_window.activateWindow()
 
-            # Update map to current time position if available
-            if self._viewport_state.visible_time_range:
-                start_time, _ = self._viewport_state.visible_time_range
-                self._map_viewer_window.update_time_position(start_time)
+            if self._timing_window is not None:
+                visible_range = self._timing_window.viewport_state.visible_time_range
+                if visible_range:
+                    start_time, _ = visible_range
+                    try:
+                        self._map_viewer_window.update_time_position(start_time)
+                    except RuntimeError:
+                        self._map_viewer_window = None
 
         except ImportError as e:
             QMessageBox.warning(
@@ -361,18 +383,63 @@ class MainWindow(QMainWindow):
                 f"An error occurred while opening the map viewer:\n{str(e)}"
             )
 
-    def _on_map_viewer_time_update(self, start_time, _end_time):
-        """Update map viewer when waveform time changes.
+    def _open_signal_interval_dialog(self):
+        """Prompt the user to select a signal and show its interval dialog."""
+        if not self._signal_data_list:
+            QMessageBox.information(
+                self,
+                "No Signals Loaded",
+                "Load a PLC log before plotting signal intervals.",
+            )
+            return
 
-        Args:
-            start_time: New visible start time
-            _end_time: New visible end time (unused)
-        """
+        if len(self._signal_data_list) == 1:
+            self._open_signal_interval_for_key(self._signal_data_list[0].key)
+            return
+
+        options = sorted(signal.key for signal in self._signal_data_list)
+        selected_key, ok = QInputDialog.getItem(
+            self,
+            "Select Signal",
+            "Choose a signal to plot:",
+            options,
+            0,
+            False,
+        )
+        if ok and selected_key:
+            self._open_signal_interval_for_key(selected_key)
+
+    def _open_signal_interval_for_key(self, signal_key: str):
+        """Open the signal interval dialog for a specific signal key."""
+        if not signal_key:
+            return
+
+        signal_data = self._signal_data_map.get(signal_key)
+        if signal_data is None:
+            QMessageBox.information(
+                self,
+                "Signal Not Available",
+                "The selected signal is no longer available. Please reload the data.",
+            )
+            return
+
+        if not signal_data.states or len(signal_data.states) < 2:
+            QMessageBox.information(
+                self,
+                "No Transitions",
+                "This signal does not have enough transitions to plot change intervals.",
+            )
+            return
+
+        dialog = SignalIntervalDialog(signal_data, self)
+        dialog.exec()
+
+    def _on_map_viewer_time_update(self, start_time, _end_time):
+        """Update map viewer when waveform time changes."""
         if self._map_viewer_window is not None:
             try:
                 self._map_viewer_window.update_time_position(start_time)
             except RuntimeError:
-                # Window was deleted
                 self._map_viewer_window = None
 
     def _on_files_selected(self, file_paths: list[str]):
@@ -431,26 +498,31 @@ class MainWindow(QMainWindow):
         self.progress_bar.setFormat("Parsing files... %p%")
 
         # Clear previous results
-        self._invoke_stats_widget("clear")
-        self.data_table.clear()
-        self.waveform_view.clear()
-        self.signal_filter.clear()
+        if self.stats_widget:
+            self.stats_widget.clear()
         self._merged_parsed_log = None
-        self._signal_data_list = None
+        self._signal_data_list = []
         self._signal_data_map = {}
-        self._visible_signal_names = []
-        self.zoom_controls.set_enabled(False)
-        self.pan_controls.set_enabled(False)
+        self._file_results = {}
+        self._update_navigation_buttons(False)
 
-        # Disconnect previous viewport listeners to avoid duplicates
-        try:
-            self._viewport_state.duration_changed.disconnect(self._on_viewport_duration_changed)
-        except TypeError:
-            pass
-        try:
-            self._viewport_state.time_range_changed.disconnect(self._on_viewport_time_range_changed)
-        except TypeError:
-            pass
+        if self._timing_window is not None:
+            try:
+                self._timing_window.clear()
+            except RuntimeError:
+                self._timing_window = None
+
+        if self._table_window is not None:
+            try:
+                self._table_window.clear()
+            except RuntimeError:
+                self._table_window = None
+
+        if self._map_viewer_window is not None:
+            try:
+                self._map_viewer_window.set_signal_data([])
+            except RuntimeError:
+                self._map_viewer_window = None
 
         # Create and start parser thread
         self._parser_thread = ParserThread(file_paths, self)
@@ -489,7 +561,8 @@ class MainWindow(QMainWindow):
             path for path, result in per_file_results.items() if not result.success
         ]
 
-        self._invoke_stats_widget("update_stats", aggregated_result)
+        if self.stats_widget:
+            self.stats_widget.update_stats(aggregated_result)
 
         if not aggregated_result.success:
             # No data parsed successfully
@@ -507,51 +580,36 @@ class MainWindow(QMainWindow):
             self.upload_widget.set_status(
                 "📁 Drag and drop log files here\nor click to browse"
             )
-            self.signal_filter.clear()
             self._signal_data_map = {}
-            self.load_new_button.setVisible(True)
+            self._signal_data_list = []
+            self._update_navigation_buttons(False)
             self._finalize_parser_thread()
             return
 
         # Update UI with results
         self._signal_data_list = signal_data_list
         self._signal_data_map = {signal.key: signal for signal in signal_data_list}
-        self._visible_signal_names = [signal.key for signal in signal_data_list]
 
-        self.waveform_view.set_data(aggregated_result.data, signal_data_list)
-        self.data_table.set_data(aggregated_result.data)
-        self.signal_filter.set_signals(signal_data_list)
+        if self._timing_window is not None:
+            try:
+                self._timing_window.set_data(aggregated_result.data, signal_data_list)
+            except RuntimeError:
+                self._timing_window = None
 
-        # Update map viewer if it's open
+        if self._table_window is not None:
+            try:
+                self._table_window.set_data(aggregated_result.data, signal_data_list)
+            except RuntimeError:
+                self._table_window = None
+
         if self._map_viewer_window is not None:
             try:
                 self._map_viewer_window.set_signal_data(signal_data_list)
             except RuntimeError:
-                # Window was deleted
                 self._map_viewer_window = None
 
-        # Initialize viewport state with the time range
-        if aggregated_result.data and aggregated_result.data.time_range:
-            start_time, end_time = aggregated_result.data.time_range
-            self._viewport_state.set_full_time_range(start_time, end_time)
-
-            initial_end = start_time + timedelta(seconds=10)  # 10 seconds from start
-            if initial_end > end_time:
-                initial_end = end_time  # Don't exceed actual data
-
-            self._viewport_state.set_time_range(start_time, initial_end)
-
-            # Update controls
-            self.pan_controls.set_time_range(start_time, end_time)
-            self.time_range_selector.set_full_time_range(start_time, end_time)
-
-            # Enable navigation controls
-            self.zoom_controls.set_enabled(True)
-            self.pan_controls.set_enabled(True)
-
-            # Connect viewport state changes to update controls
-            self._viewport_state.duration_changed.connect(self._on_viewport_duration_changed)
-            self._viewport_state.time_range_changed.connect(self._on_viewport_time_range_changed)
+        has_data = aggregated_result.data is not None
+        self._update_navigation_buttons(has_data)
 
         # Update upload widget status
         success_count = len(successful_files)
@@ -559,9 +617,6 @@ class MainWindow(QMainWindow):
         if aggregated_result.has_errors:
             status += f" with {aggregated_result.error_count} error(s)"
         self.upload_widget.set_status(status)
-
-        # Show load new file button
-        self.load_new_button.setVisible(True)
 
         # Show success message for significant errors
         if aggregated_result.has_errors and aggregated_result.error_count > 5:
@@ -593,7 +648,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setVisible(False)
         self.upload_widget.setEnabled(True)
 
-        self.signal_filter.clear()
+        self._update_navigation_buttons(False)
         QMessageBox.critical(self, "Error", error_msg)
         self.upload_widget.set_status(
             "📁 Drag and drop log files here\nor click to browse"
@@ -606,125 +661,13 @@ class MainWindow(QMainWindow):
         """Update progress bar as files are parsed."""
         if total <= 0:
             return
+
         self.progress_bar.setRange(0, total)
         self.progress_bar.setValue(current)
         filename = Path(file_path).name if file_path else ""
         self.progress_bar.setFormat(
             f"Parsing {current}/{total} file(s) - {filename}"
         )
-
-    def _load_new_file(self):
-        """Reset the UI to load a new file."""
-        self.upload_widget.set_status(
-            "📁 Drag and drop log files here\nor click to browse"
-        )
-        self.data_table.clear()
-        self.waveform_view.clear()
-        self.signal_filter.clear()
-        self.load_new_button.setVisible(False)
-        self._current_files = []
-        self._merged_parsed_log = None
-        self._file_results = {}
-        self._signal_data_list = None
-        self._signal_data_map = {}
-        self._visible_signal_names = []
-
-        # Disable navigation controls
-        self.zoom_controls.set_enabled(False)
-        self.pan_controls.set_enabled(False)
-        self._invoke_stats_widget("clear")
-
-    def _invoke_stats_widget(self, method_name: str, *args):
-        """Safely invoke a method on the stats widget."""
-        widget = self.stats_widget
-        if widget is None:
-            widget = self._create_stats_widget()
-        if widget is None:
-            return
-
-        try:
-            getattr(widget, method_name)(*args)
-        except RuntimeError:
-            self.stats_widget = None
-            widget = self._create_stats_widget()
-            if widget is not None:
-                getattr(widget, method_name)(*args)
-
-    def _create_stats_widget(self) -> StatsWidget | None:
-        """Create a fresh stats widget, attaching it to the holder layout."""
-        holder = self._ensure_stats_holder()
-        layout = self._stats_holder_layout
-
-        if holder is None or layout is None:
-            return None
-
-        # Remove any existing stats widget instance
-        old_widget = self.stats_widget
-        if old_widget is not None:
-            print("[Stats] Removing existing stats widget before recreation")
-            try:
-                index = layout.indexOf(old_widget)
-                if index != -1:
-                    layout.takeAt(index)
-            except RuntimeError:
-                index = -1
-            try:
-                old_widget.setParent(None)
-            except RuntimeError:
-                pass
-            try:
-                old_widget.deleteLater()
-            except RuntimeError:
-                pass
-
-        print("[Stats] Creating new StatsWidget instance")
-        widget = StatsWidget(holder)
-        widget.setMaximumWidth(350)
-        widget.destroyed.connect(self._on_stats_widget_destroyed)
-        layout.insertWidget(0, widget)
-        self.stats_widget = widget
-        return widget
-
-    def _ensure_stats_holder(self) -> QWidget | None:
-        """Ensure the stats holder widget and layout exist."""
-        holder = self._stats_holder
-
-        if holder is None:
-            print("[Stats] Creating stats holder widget")
-            holder = QWidget()
-            holder.destroyed.connect(self._on_stats_holder_destroyed)
-            self._stats_holder = holder
-
-            layout = QVBoxLayout(holder)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(0)
-            self._stats_holder_layout = layout
-
-            if self._left_layout is not None:
-                try:
-                    self._left_layout.insertWidget(0, holder)
-                except RuntimeError:
-                    pass
-                else:
-                    print(f"[Stats] Inserted stats holder into left layout. Current count: {self._left_layout.count()}")
-        elif self._stats_holder_layout is None:
-            layout = QVBoxLayout(holder)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(0)
-            self._stats_holder_layout = layout
-            print("[Stats] Recreated stats holder layout")
-
-        return self._stats_holder
-
-    def _on_stats_widget_destroyed(self, _obj=None):
-        """Reset stats widget reference when underlying QObject is destroyed."""
-        self.stats_widget = None
-
-    def _on_stats_holder_destroyed(self, _obj=None):
-        """Reset stats holder references when destroyed."""
-        self._stats_holder = None
-        self._stats_holder_layout = None
-        self.stats_widget = None
 
     def resizeEvent(self, event: QResizeEvent):
         """Log resize information (useful for debugging Wayland sizing)."""
@@ -739,176 +682,6 @@ class MainWindow(QMainWindow):
         if self._parser_thread:
             self._parser_thread.deleteLater()
             self._parser_thread = None
-
-    # Zoom control handlers
-    def _on_zoom_in(self):
-        """Handle zoom in button click."""
-        self._viewport_state.zoom_in(factor=1.5)
-
-    def _on_zoom_out(self):
-        """Handle zoom out button click."""
-        self._viewport_state.zoom_out(factor=1.5)
-
-    def _on_reset_zoom(self):
-        """Handle reset zoom button click."""
-        self._viewport_state.reset_zoom()
-
-    def _on_duration_slider_changed(self, duration_seconds: float):
-        """Handle duration slider change.
-
-        Args:
-            duration_seconds: New visible duration from slider
-        """
-        self._viewport_state.set_visible_duration(duration_seconds)
-
-    def _on_viewport_duration_changed(self, duration_seconds: float):
-        """Handle viewport duration change.
-
-        Updates zoom controls to reflect the new visible duration.
-
-        Args:
-            duration_seconds: New visible duration in seconds
-        """
-        self.zoom_controls.set_visible_duration(
-            duration_seconds,
-            min_duration=self._viewport_state.min_visible_duration,
-            max_duration=self._viewport_state.max_visible_duration
-        )
-
-    def _on_wheel_zoom(self, delta: int):
-        """Handle mouse wheel zoom.
-
-        Args:
-            delta: Wheel delta (positive = zoom in, negative = zoom out)
-        """
-        if delta > 0:
-            self._viewport_state.zoom_in(factor=1.2)
-        else:
-            self._viewport_state.zoom_out(factor=1.2)
-
-    # Pan control handlers
-    def _on_pan_left(self):
-        """Handle pan left button click."""
-        # Pan by 10% of visible duration
-        if self._viewport_state.visible_duration:
-            delta_seconds = -self._viewport_state.visible_duration.total_seconds() * 0.1
-            self._viewport_state.pan(delta_seconds)
-
-    def _on_pan_right(self):
-        """Handle pan right button click."""
-        # Pan by 10% of visible duration
-        if self._viewport_state.visible_duration:
-            delta_seconds = self._viewport_state.visible_duration.total_seconds() * 0.1
-            self._viewport_state.pan(delta_seconds)
-
-    def _on_jump_to_time(self, target_time):
-        """Handle jump to time request.
-
-        Args:
-            target_time: Target datetime to jump to
-        """
-        self._viewport_state.jump_to_time(target_time)
-
-    def _on_scroll_changed(self, position: float):
-        """Handle scrollbar position change.
-
-        Args:
-            position: Position as fraction (0.0 to 1.0)
-        """
-        if not self._viewport_state.full_time_range:
-            return
-
-        full_start, full_end = self._viewport_state.full_time_range
-        visible_range = self._viewport_state.visible_time_range
-
-        if not visible_range:
-            return
-
-        visible_start, visible_end = visible_range
-        visible_duration = visible_end - visible_start
-
-        # Calculate new start time based on scroll position
-        full_duration = full_end - full_start
-        max_start_offset = full_duration - visible_duration
-
-        from datetime import timedelta
-        new_start = full_start + timedelta(seconds=position * max_start_offset.total_seconds())
-        new_end = new_start + visible_duration
-
-        self._viewport_state.set_time_range(new_start, new_end)
-
-    def _on_plot_change_intervals(self, signal_key: str):
-        """Open the interval plot dialog for the selected signal."""
-        if not signal_key:
-            return
-
-        signal_data = self._signal_data_map.get(signal_key)
-        if signal_data is None:
-            QMessageBox.information(
-                self,
-                "Signal Not Available",
-                "The selected signal is no longer available. Please reload the data."
-            )
-            return
-
-        if not signal_data.states or len(signal_data.states) < 2:
-            QMessageBox.information(
-                self,
-                "No Transitions",
-                "This signal does not have enough transitions to plot change intervals."
-            )
-            return
-
-        dialog = SignalIntervalDialog(signal_data, self)
-        dialog.exec()
-
-    def _on_visible_signals_changed(self, visible_names: list[str]):
-        """Handle updates from the signal filter widget."""
-        self._visible_signal_names = visible_names
-
-        if self._merged_parsed_log is None:
-            return
-
-        self.waveform_view.set_visible_signals(visible_names)
-        self.data_table.filter_signals(set(visible_names))
-
-    def _on_time_range_selector_changed(self, start, end):
-        """Handle time range selector change.
-
-        Args:
-            start: New start time
-            end: New end time
-        """
-        self._viewport_state.set_time_range(start, end)
-
-    def _on_viewport_time_range_changed(self, start, end):
-        """Handle viewport time range changes to update controls.
-
-        Args:
-            start: New visible start time
-            end: New visible end time
-        """
-        # Update time range selector
-        self.time_range_selector.set_visible_time_range(start, end)
-
-        # Update scroll position
-        if self._viewport_state.full_time_range:
-            full_start, full_end = self._viewport_state.full_time_range
-            full_duration = (full_end - full_start).total_seconds()
-            visible_duration = (end - start).total_seconds()
-            visible_fraction = 1.0
-
-            if full_duration > 0:
-                visible_fraction = min(1.0, visible_duration / full_duration)
-
-            if full_duration > visible_duration:
-                # Calculate scroll position
-                offset = (start - full_start).total_seconds()
-                max_offset = full_duration - visible_duration
-                position = offset / max_offset if max_offset > 0 else 0.0
-                self.pan_controls.set_scroll_position(position, visible_fraction)
-            else:
-                self.pan_controls.set_scroll_position(0.0, visible_fraction)
 
 
 atexit.register(ParserThread.shutdown_executor)

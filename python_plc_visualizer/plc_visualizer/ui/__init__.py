@@ -8,6 +8,8 @@ from .waveform_view import WaveformView
 from .signal_filter_widget import SignalFilterWidget
 from .ClickableLabel import ClickableLabel
 from .integrated_map_viewer import IntegratedMapViewer
+from .timing_diagram_window import TimingDiagramWindow
+from .log_table_window import LogTableWindow
 
 
 __all__ = [
@@ -18,5 +20,7 @@ __all__ = [
     'WaveformView',
     'SignalFilterWidget',
     'ClickableLabel',
-    'IntegratedMapViewer'
+    'IntegratedMapViewer',
+    'TimingDiagramWindow',
+    'LogTableWindow',
 ]
