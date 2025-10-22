@@ -26,7 +26,11 @@ except ImportError:  # pragma: no cover
         sip = _DummySip()
 
 from plc_visualizer.models import ParsedLog
-from plc_visualizer.utils import SignalData, process_signals_for_waveform
+from plc_visualizer.utils import (
+    SignalData,
+    process_signals_for_waveform,
+    compute_signal_states,
+)
 from .time_axis_item import TimeAxisItem
 from .signal_item import SignalItem
 from .signal_label_item import SignalLabelItem
@@ -68,12 +72,18 @@ class WaveformScene(QGraphicsScene):
     def set_data(
         self,
         parsed_log: ParsedLog,
-        signal_data_list: list[SignalData] | None = None
+        signal_data_list: list[SignalData] | None = None,
+        lazy: bool = True
     ):
         """Set the parsed log data and render waveforms.
 
+        Memory optimization: Uses lazy loading by default to avoid
+        computing states for all signals upfront.
+
         Args:
             parsed_log: ParsedLog containing entries to visualize
+            signal_data_list: Pre-computed signal data (optional)
+            lazy: If True, compute states only for visible signals (default)
         """
         self.parsed_log = parsed_log
         self.visible_time_range = parsed_log.time_range if parsed_log else None
@@ -93,7 +103,8 @@ class WaveformScene(QGraphicsScene):
             return
 
         if signal_data_list is None:
-            signal_data_list = process_signals_for_waveform(parsed_log)
+            # Use lazy loading by default for memory efficiency
+            signal_data_list = process_signals_for_waveform(parsed_log, lazy=lazy)
 
         self.signal_data_map = {signal.key: signal for signal in signal_data_list}
         self.all_signal_names = [signal.key for signal in signal_data_list]
@@ -180,9 +191,16 @@ class WaveformScene(QGraphicsScene):
         self.signal_items = alive_signal_items
 
     def set_visible_signals(self, signal_names: list[str]):
-        """Update which signals are visible and rebuild the scene."""
+        """Update which signals are visible and rebuild the scene.
+
+        Memory optimization: Clears states for hidden signals and computes
+        states on-demand for newly visible signals.
+        """
         if not self.signal_data_map:
             return
+
+        # Track which signals are being hidden/shown
+        old_visible = set(self.visible_signal_names)
 
         if not signal_names:
             self.visible_signal_names = []
@@ -191,6 +209,22 @@ class WaveformScene(QGraphicsScene):
             self.visible_signal_names = [
                 name for name in self.all_signal_names if name in desired
             ]
+
+        new_visible = set(self.visible_signal_names)
+
+        # Clear states for newly hidden signals to free memory
+        hidden_signals = old_visible - new_visible
+        for signal_key in hidden_signals:
+            signal_data = self.signal_data_map.get(signal_key)
+            if signal_data:
+                signal_data.clear_states()
+
+        # Compute states for newly visible signals that don't have them
+        shown_signals = new_visible - old_visible
+        for signal_key in shown_signals:
+            signal_data = self.signal_data_map.get(signal_key)
+            if signal_data and not signal_data.states and self.parsed_log:
+                compute_signal_states(signal_data, self.parsed_log)
 
         self._build_scene()
 

@@ -392,6 +392,7 @@ class GenericTemplateLogParser(BaseParser):
             infer_types=self.INFER_TYPES,
             has_float=self._HAS_FLOAT,
             use_line_re=self.LINE_RE is not None,
+            parser_name=self.name,
         )
 
         # For line regex path, we pass its pattern (compiled in worker)
@@ -515,13 +516,53 @@ class GenericTemplateLogParser(BaseParser):
         except ValueError as e:
             raise ValueError(f"Invalid timestamp: {ts_str} ({e})")
 
+    def _fast_parse_line(
+        self, line: str, did_re: re.Pattern
+    ) -> Optional[LogEntry]:
+        """
+        Ultra-fast delimiter-indexed parser hook for subclasses.
+
+        Override this method to implement custom high-performance parsing
+        using string operations (find, split, slice) instead of regex.
+
+        Performance benefits: 5-50x faster than regex for well-formed lines.
+
+        Returns:
+            LogEntry if successfully parsed, None to fall back to regex
+
+        Raises:
+            Any exception will trigger graceful fallback to regex parsing
+
+        Example (tab-delimited):
+            parts = line.split('\\t')
+            if len(parts) < 9:
+                return None  # fall back to regex
+            timestamp = self._parse_ts(parts[0].strip())
+            # ... extract other fields
+            return LogEntry(...)
+        """
+        return None  # Default: no fast path, use regex
+
     def _parse_line_hot(
         self, line: str, did_re: re.Pattern, tpl_compiled
     ) -> LogEntry:
         """
-        Hot-path line parser. Prefers LINE_RE; else compiled parse-template.
-        Subclasses with very specific formats should set LINE_RE for speed.
+        Hot-path line parser. Tries fast delimiter parsing first, then regex/template.
+
+        Parsing priority:
+        1. _fast_parse_line() - Ultra-fast delimiter/index-based (if overridden)
+        2. LINE_RE - Regex pattern matching
+        3. TEMPLATE - Parse module template matching
         """
+        # Try ultra-fast delimiter parsing first (if subclass provides it)
+        try:
+            entry = self._fast_parse_line(line, did_re)
+            if entry is not None:
+                return entry
+        except Exception:
+            # Any error in fast path: fall through to regex safety net
+            pass
+
         if self.LINE_RE is not None:
             m = self.LINE_RE.match(line)
             if not m:
@@ -599,6 +640,107 @@ class GenericTemplateLogParser(BaseParser):
 
 # ----------------- Worker plumbing (module-level for reuse) -----------------
 
+def _try_fast_parse_worker(
+    line: str, parser_name: str, did_re: re.Pattern, type_map: Dict[str, SignalType],
+    infer_types: bool, has_float: bool
+) -> Optional[Tuple[str, str, str, str, str, str]]:
+    """
+    Module-level fast parse dispatcher for worker processes.
+    Returns (device_id, signal, ts_str, raw_value, dtype_token, path) or None.
+    """
+    if parser_name == "plc_tab":
+        # Fast parse for tab-delimited format
+        # Format: "YYYY-MM-DD HH:MM:SS.fff [] path\tsignal\tdirection\tvalue\t..."
+        if '\t' not in line:
+            return None
+
+        bracket_idx = line.find(' [] ')
+        if bracket_idx == -1:
+            return None
+
+        ts_str = line[:bracket_idx].strip()
+        if len(ts_str) < 19:
+            return None
+
+        remainder = line[bracket_idx + 4:]
+        parts = remainder.split('\t')
+
+        if len(parts) < 8:
+            return None
+
+        path = parts[0].strip()
+        signal = parts[1].strip()
+        value_str = parts[3].strip()
+
+        md = did_re.search(path)
+        if not md:
+            return None
+        device_id = md.group(1)
+
+        # Return tuple: (device_id, signal, ts_str, raw_value, dtype_token, path)
+        # dtype_token is empty for tab parser (inferred from value)
+        return (device_id, signal, ts_str, value_str, "", path)
+
+    elif parser_name == "plc_debug":
+        # Fast parse for bracket-delimited format
+        # Format: "YYYY-MM-DD HH:MM:SS.fff [Level] [path] [cat:signal] (dtype) : value"
+        if '[' not in line or '(' not in line:
+            return None
+
+        # Extract timestamp
+        bracket1 = line.find('[')
+        if bracket1 == -1:
+            return None
+        ts_str = line[:bracket1].strip()
+        if len(ts_str) < 19:
+            return None
+
+        # Skip [Level], find [path]
+        bracket2 = line.find('[', bracket1 + 1)
+        if bracket2 == -1:
+            return None
+
+        bracket2_close = line.find(']', bracket2)
+        if bracket2_close == -1:
+            return None
+        path = line[bracket2 + 1:bracket2_close].strip()
+
+        # Extract [category:signal]
+        bracket3 = line.find('[', bracket2_close + 1)
+        bracket3_close = line.find(']', bracket3)
+        if bracket3 == -1 or bracket3_close == -1:
+            return None
+        cat_signal = line[bracket3 + 1:bracket3_close].strip()
+
+        colon_idx = cat_signal.find(':')
+        if colon_idx == -1:
+            return None
+        signal = cat_signal[colon_idx + 1:].strip()
+
+        # Extract (dtype)
+        paren_open = line.find('(', bracket3_close)
+        paren_close = line.find(')', paren_open)
+        if paren_open == -1 or paren_close == -1:
+            return None
+        dtype_token = line[paren_open + 1:paren_close].strip()
+
+        # Extract value after ": "
+        colon_space = line.find(':', paren_close)
+        if colon_space == -1:
+            return None
+        value_str = line[colon_space + 1:].strip()
+
+        md = did_re.search(path)
+        if not md:
+            return None
+        device_id = md.group(1)
+
+        return (device_id, signal, ts_str, value_str, dtype_token, path)
+
+    # Add more parser types here as needed
+    return None
+
+
 class _WorkerConfig:
     """Lightweight, executor-friendly config container."""
     __slots__ = (
@@ -610,6 +752,7 @@ class _WorkerConfig:
         "use_line_re",
         "line_re_pattern",
         "parse_template",
+        "parser_name",
     )
 
     def __init__(
@@ -620,6 +763,7 @@ class _WorkerConfig:
         infer_types: bool,
         has_float: bool,
         use_line_re: bool,
+        parser_name: str = "base",
     ):
         self.ts_format = ts_format
         self.type_map = type_map
@@ -627,6 +771,7 @@ class _WorkerConfig:
         self.infer_types = infer_types
         self.has_float = has_float
         self.use_line_re = use_line_re
+        self.parser_name = parser_name
         # set separately by caller:
         self.line_re_pattern: Optional[str] = None
         self.parse_template: Optional[str] = None
@@ -661,6 +806,31 @@ def _parse_lines_batch(
         if not line or line.isspace():
             continue
         try:
+            # Try fast parse first (if available for this parser type)
+            fast_result = None
+            try:
+                fast_result = _try_fast_parse_worker(
+                    line, cfg.parser_name, did_re, cfg.type_map,
+                    cfg.infer_types, cfg.has_float
+                )
+            except Exception:
+                pass  # Fall back to regex on any error
+
+            if fast_result is not None:
+                device_id, signal, ts_str, raw, dtype_token, path = fast_result
+
+                st = cfg.type_map.get(dtype_token.lower()) if dtype_token else None
+                if st is None and cfg.infer_types:
+                    st = _infer_type_fast(raw, cfg.has_float)
+                if st is None:
+                    raise ValueError(f"Invalid/unknown type: {dtype_token or '<missing>'}")
+
+                value = _parse_value_fast(raw, st, cfg.infer_types, cfg.has_float)
+                entries.append((device_id, signal, ts_str, value, st))
+                signals.add(f"{device_id}::{signal}")
+                devices.add(device_id)
+                continue  # Skip regex parsing
+
             if line_re is not None:
                 m = line_re.match(line)
                 if not m:

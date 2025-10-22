@@ -25,16 +25,20 @@ class SignalState:
 
 @dataclass
 class SignalData:
-    """Processed signal data for visualization."""
+    """Processed signal data for visualization.
+
+    Memory optimization: entries are NOT stored here to avoid duplication.
+    States are computed lazily when needed for rendering.
+    """
     name: str
     device_id: str
     key: str
     signal_type: SignalType
-    entries: list[LogEntry]
-    states: list[SignalState]
+    states: list[SignalState] = field(default_factory=list)
     time_anchor: datetime | None = None
     start_offsets: array = field(default_factory=lambda: array("d"), repr=False)
     end_offsets: array = field(default_factory=lambda: array("d"), repr=False)
+    _entries_count: int = 0  # Track count for stats without storing entries
 
     @property
     def has_transitions(self) -> bool:
@@ -45,6 +49,11 @@ class SignalData:
     def display_label(self) -> str:
         """Combined label for device and signal."""
         return f"{self.device_id} -> {self.name}"
+
+    @property
+    def entry_count(self) -> int:
+        """Number of entries for this signal (for stats)."""
+        return self._entries_count
 
     def build_time_index(self, anchor: datetime):
         """Pre-compute numeric offsets for fast viewport clipping."""
@@ -71,6 +80,16 @@ class SignalData:
 
         self.start_offsets = start_offsets
         self.end_offsets = end_offsets
+
+    def clear_states(self):
+        """Clear computed states to free memory when signal is hidden.
+
+        This is a memory optimization - states can be recomputed on-demand
+        when the signal becomes visible again.
+        """
+        self.states.clear()
+        self.start_offsets = array("d")
+        self.end_offsets = array("d")
 
 
 def group_by_signal(parsed_log: ParsedLog) -> dict[tuple[str, str], list[LogEntry]]:
@@ -137,11 +156,18 @@ def calculate_signal_states(
     return states
 
 
-def process_signals_for_waveform(parsed_log: ParsedLog) -> list[SignalData]:
+def process_signals_for_waveform(
+    parsed_log: ParsedLog,
+    lazy: bool = False
+) -> list[SignalData]:
     """Process parsed log data into signal data ready for visualization.
+
+    Memory optimization: Entries are NOT duplicated in SignalData.
+    States can be computed lazily to save memory.
 
     Args:
         parsed_log: ParsedLog containing all entries
+        lazy: If True, don't compute states immediately (saves memory)
 
     Returns:
         List of SignalData objects, one per signal
@@ -157,23 +183,59 @@ def process_signals_for_waveform(parsed_log: ParsedLog) -> list[SignalData]:
         # Get signal type from first entry
         signal_type = entries[0].signal_type
 
-        # Calculate states
-        states = calculate_signal_states(entries, parsed_log.time_range)
+        # Calculate states (unless lazy mode)
+        states = [] if lazy else calculate_signal_states(entries, parsed_log.time_range)
 
         signal_data = SignalData(
             name=signal_name,
             device_id=device_id,
             key=f"{device_id}::{signal_name}",
             signal_type=signal_type,
-            entries=entries,
-            states=states
+            states=states,
+            _entries_count=len(entries)  # Store count, not entries
         )
 
-        anchor = range_start or entries[0].timestamp
-        signal_data.build_time_index(anchor)
+        if not lazy:
+            anchor = range_start or entries[0].timestamp
+            signal_data.build_time_index(anchor)
+
         signal_data_list.append(signal_data)
 
     # Sort by device then signal name for consistent display
     signal_data_list.sort(key=lambda s: (s.device_id, s.name))
 
     return signal_data_list
+
+
+def compute_signal_states(
+    signal_data: SignalData,
+    parsed_log: ParsedLog
+):
+    """Lazily compute states for a signal from the original ParsedLog.
+
+    This allows on-demand state calculation without storing duplicate entries.
+
+    Args:
+        signal_data: SignalData object to populate with states
+        parsed_log: Original parsed log containing all entries
+    """
+    # Extract entries for this signal from the main entry list
+    entries = [
+        entry for entry in parsed_log.entries
+        if entry.device_id == signal_data.device_id
+        and entry.signal_name == signal_data.name
+    ]
+
+    if not entries:
+        return
+
+    # Sort by timestamp
+    entries.sort(key=lambda e: e.timestamp)
+
+    # Calculate states
+    signal_data.states = calculate_signal_states(entries, parsed_log.time_range)
+
+    # Build time index
+    anchor = parsed_log.time_range[0] if parsed_log.time_range else entries[0].timestamp
+    signal_data.build_time_index(anchor)
+    signal_data._entries_count = len(entries)
