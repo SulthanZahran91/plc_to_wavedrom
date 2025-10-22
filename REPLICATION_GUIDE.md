@@ -26,9 +26,9 @@ To rebuild the project, match the following environment:
 | Dependency      | Purpose                                               | Notes                                              |
 |-----------------|-------------------------------------------------------|----------------------------------------------------|
 | Python ≥ 3.10   | Language runtime                                      | Uses typing features such as `list[str]`, `|`      |
-| PyQt6 ≥ 6.6     | GUI toolkit                                           | Widgets, events, QGraphicsScene rendering          |
+| PySide6 ≥ 6.6   | GUI toolkit                                           | Widgets, events, QGraphicsScene rendering          |
 | parse ≥ 1.20    | Optional templated parsing support                    | Only needed if a parser subclass uses parse templates |
-| sip ≥ 6.13      | Used implicitly by PyQt6 for QObject lifetime checks  | Imported explicitly in waveform scene              |
+|                 |                                                       |                                                    |
 | pytest, pytest-qt | Automated testing                                   | Optional when reimplementing                       |
 
 Recommended project scaffolding:
