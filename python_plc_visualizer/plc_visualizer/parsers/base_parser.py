@@ -173,6 +173,49 @@ class BaseParser(ABC):
         if result.data:
             yield from result.data.entries
 
+    def parse_time_window(
+        self,
+        file_path: str,
+        start_time: datetime,
+        end_time: datetime
+    ) -> ParseResult:
+        """Parse only entries within a specific time window.
+
+        This is a memory optimization for large files. The default implementation
+        parses the entire file and filters, but subclasses can override for
+        more efficient implementations (e.g., seeking to time range).
+
+        Args:
+            file_path: Path to the log file
+            start_time: Start of time window (inclusive)
+            end_time: End of time window (exclusive)
+
+        Returns:
+            ParseResult containing only entries in the time window
+        """
+        # Default: parse entire file and filter
+        # Subclasses should override for better performance
+        result = self.parse(file_path)
+
+        if not result.success or not result.data:
+            return result
+
+        # Filter entries to time window
+        filtered_entries = [
+            entry for entry in result.data.entries
+            if start_time <= entry.timestamp < end_time
+        ]
+
+        # Create new ParsedLog with filtered entries
+        filtered_log = ParsedLog(
+            entries=filtered_entries,
+            signals=result.data.signals,  # Keep all signals metadata
+            devices=result.data.devices,  # Keep all devices metadata
+            time_range=(start_time, end_time)
+        )
+
+        return ParseResult(data=filtered_log, errors=result.errors)
+
 
 # ---------------------- Generic template/regex parser ----------------------
 

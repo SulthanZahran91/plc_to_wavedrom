@@ -6,15 +6,19 @@ from PySide6.QtCore import QObject, Signal
 
 
 class ViewportState(QObject):
-    """Manages the viewport state for time range and zoom level.
+    """Manages the viewport state for time range and visible duration.
 
     Signals:
         time_range_changed: Emitted when the visible time range changes
-        zoom_level_changed: Emitted when the zoom level changes
+        duration_changed: Emitted when the visible duration changes (in seconds)
     """
 
     time_range_changed = Signal(datetime, datetime)
-    zoom_level_changed = Signal(float)
+    duration_changed = Signal(float)  # Emits visible duration in seconds
+
+    # Duration constraints
+    MAX_VISIBLE_DURATION_SECONDS = 300.0  # 5 minutes maximum visible window
+    MIN_VISIBLE_DURATION_SECONDS = 0.001  # 1 millisecond minimum (max zoom in)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -27,12 +31,40 @@ class ViewportState(QObject):
         self._visible_start: Optional[datetime] = None
         self._visible_end: Optional[datetime] = None
 
-        # Zoom level (1.0 = full view, higher = zoomed in)
-        self._zoom_level: float = 1.0
+        # Visible duration in seconds (replaces zoom_level)
+        self._visible_duration_seconds: float = 300.0
 
-        # Zoom constraints
-        self.min_zoom = 1.0
-        self.max_zoom = 1000.0
+        # Duration constraints (will be updated when data is loaded)
+        self.min_visible_duration = self.MIN_VISIBLE_DURATION_SECONDS  # Minimum window (max zoom in)
+        self.max_visible_duration = self.MAX_VISIBLE_DURATION_SECONDS  # Maximum window (max zoom out)
+
+    def _update_duration_constraints(self):
+        """Calculate and update duration constraints based on loaded data.
+
+        This prevents over-compression of data when zoomed out and sets reasonable limits.
+
+        Example: If full duration is 1 hour:
+        - max_visible_duration = 5 minutes (prevents over-compression)
+        - min_visible_duration = 1 millisecond (allows detailed inspection)
+
+        If full duration is less than MAX_VISIBLE_DURATION, allow viewing the full range.
+        """
+        if self._full_start is None or self._full_end is None:
+            self.max_visible_duration = self.MAX_VISIBLE_DURATION_SECONDS
+            self.min_visible_duration = self.MIN_VISIBLE_DURATION_SECONDS
+            return
+
+        full_duration_seconds = (self._full_end - self._full_start).total_seconds()
+        if full_duration_seconds <= 0:
+            self.max_visible_duration = self.MAX_VISIBLE_DURATION_SECONDS
+            self.min_visible_duration = self.MIN_VISIBLE_DURATION_SECONDS
+            return
+
+        # Max visible duration: smaller of full duration or MAX_VISIBLE_DURATION
+        self.max_visible_duration = min(full_duration_seconds, self.MAX_VISIBLE_DURATION_SECONDS)
+
+        # Min visible duration: ensure we can zoom in to at least 1ms
+        self.min_visible_duration = self.MIN_VISIBLE_DURATION_SECONDS
 
     def set_full_time_range(self, start: datetime, end: datetime):
         """Set the full time range of the loaded log.
@@ -46,12 +78,20 @@ class ViewportState(QObject):
 
         self._full_start = start
         self._full_end = end
-        # self._visible_start = start
-        # self._visible_end = end
-        self._zoom_level = 1.0
+
+        # Update duration constraints based on data
+        self._update_duration_constraints()
+
+        # Initialize visible range to max visible duration (most zoomed out view allowed)
+        full_duration_seconds = (self._full_end - self._full_start).total_seconds()
+        initial_duration_seconds = min(full_duration_seconds, self.max_visible_duration)
+
+        self._visible_duration_seconds = initial_duration_seconds
+        self._visible_start = start
+        self._visible_end = start + timedelta(seconds=initial_duration_seconds)
 
         # self.time_range_changed.emit(self._visible_start, self._visible_end)
-        # self.zoom_level_changed.emit(self._zoom_level)
+        # self.duration_changed.emit(self._visible_duration_seconds)
 
     @property
     def full_time_range(self) -> Optional[Tuple[datetime, datetime]]:
@@ -68,9 +108,22 @@ class ViewportState(QObject):
         return (self._visible_start, self._visible_end)
 
     @property
+    def visible_duration_seconds(self) -> float:
+        """Get the current visible duration in seconds."""
+        return self._visible_duration_seconds
+
+    @property
     def zoom_level(self) -> float:
-        """Get the current zoom level."""
-        return self._zoom_level
+        """Get the current zoom level (for backward compatibility).
+
+        Calculated as full_duration / visible_duration.
+        """
+        if self._full_start is None or self._full_end is None:
+            return 1.0
+        full_duration_seconds = (self._full_end - self._full_start).total_seconds()
+        if full_duration_seconds <= 0 or self._visible_duration_seconds <= 0:
+            return 1.0
+        return full_duration_seconds / self._visible_duration_seconds
 
     @property
     def full_duration(self) -> Optional[timedelta]:
@@ -87,67 +140,86 @@ class ViewportState(QObject):
         return self._visible_end - self._visible_start
 
     def zoom_in(self, factor: float = 2.0):
-        """Zoom in by the given factor.
+        """Zoom in by decreasing the visible duration.
 
         Args:
-            factor: Zoom factor (default 2.0 = double the zoom)
+            factor: Factor to divide duration by (default 2.0 = show half the time)
         """
-        new_zoom = min(self._zoom_level * factor, self.max_zoom)
-        self._apply_zoom(new_zoom)
+        new_duration = max(self._visible_duration_seconds / factor, self.min_visible_duration)
+        self._apply_duration_change(new_duration)
 
     def zoom_out(self, factor: float = 2.0):
-        """Zoom out by the given factor.
+        """Zoom out by increasing the visible duration.
 
         Args:
-            factor: Zoom factor (default 2.0 = half the zoom)
+            factor: Factor to multiply duration by (default 2.0 = show twice the time)
         """
-        new_zoom = max(self._zoom_level / factor, self.min_zoom)
-        self._apply_zoom(new_zoom)
+        new_duration = min(self._visible_duration_seconds * factor, self.max_visible_duration)
+        self._apply_duration_change(new_duration)
+
+    def set_visible_duration(self, duration_seconds: float):
+        """Set the visible duration directly.
+
+        Args:
+            duration_seconds: Desired visible duration in seconds
+        """
+        duration_seconds = max(self.min_visible_duration, min(duration_seconds, self.max_visible_duration))
+        self._apply_duration_change(duration_seconds)
 
     def set_zoom_level(self, zoom: float):
-        """Set the zoom level directly.
+        """Set the zoom level (for backward compatibility).
+
+        Converts zoom level to visible duration and applies it.
 
         Args:
-            zoom: Desired zoom level (1.0 to max_zoom)
+            zoom: Desired zoom level (higher = more zoomed in)
         """
-        zoom = max(self.min_zoom, min(zoom, self.max_zoom))
-        self._apply_zoom(zoom)
+        if self._full_start is None or self._full_end is None:
+            return
+        full_duration_seconds = (self._full_end - self._full_start).total_seconds()
+        if full_duration_seconds <= 0:
+            return
+
+        # Calculate visible duration from zoom level
+        duration_seconds = full_duration_seconds / zoom
+        self.set_visible_duration(duration_seconds)
 
     def reset_zoom(self):
-        """Reset zoom to show the full time range."""
+        """Reset to show maximum allowed time range (most zoomed out)."""
         if self._full_start is None or self._full_end is None:
             return
 
+        # Reset to max visible duration (or full duration if smaller)
+        full_duration_seconds = (self._full_end - self._full_start).total_seconds()
+        reset_duration = min(full_duration_seconds, self.max_visible_duration)
+
+        self._visible_duration_seconds = reset_duration
         self._visible_start = self._full_start
-        self._visible_end = self._full_end
-        self._zoom_level = 1.0
+        self._visible_end = self._full_start + timedelta(seconds=reset_duration)
 
         self.time_range_changed.emit(self._visible_start, self._visible_end)
-        self.zoom_level_changed.emit(self._zoom_level)
+        self.duration_changed.emit(self._visible_duration_seconds)
 
-    def _apply_zoom(self, new_zoom: float):
-        """Apply a new zoom level, maintaining the center point.
+    def _apply_duration_change(self, new_duration_seconds: float):
+        """Apply a new visible duration, maintaining the center point.
 
         Args:
-            new_zoom: The new zoom level to apply
+            new_duration_seconds: The new visible duration in seconds
         """
         if self._full_start is None or self._full_end is None:
             return
         if self._visible_start is None or self._visible_end is None:
             return
 
-        if new_zoom == self._zoom_level:
-            return
+        if abs(new_duration_seconds - self._visible_duration_seconds) < 0.0001:
+            return  # No significant change
 
         # Calculate the center of the current visible range
         visible_duration = self._visible_end - self._visible_start
         center = self._visible_start + visible_duration / 2
 
-        # Calculate new duration based on zoom level
-        full_duration = self._full_end - self._full_start
-        new_duration = full_duration / new_zoom
-
         # Calculate new start and end, centered on the same point
+        new_duration = timedelta(seconds=new_duration_seconds)
         new_start = center - new_duration / 2
         new_end = center + new_duration / 2
 
@@ -159,16 +231,19 @@ class ViewportState(QObject):
             new_end = self._full_end
             new_start = new_end - new_duration
 
-        # Ensure we don't exceed bounds (can happen at max zoom)
+        # Ensure we don't exceed bounds
         new_start = max(new_start, self._full_start)
         new_end = min(new_end, self._full_end)
 
+        # Update actual duration based on constrained range
+        actual_duration = (new_end - new_start).total_seconds()
+
         self._visible_start = new_start
         self._visible_end = new_end
-        self._zoom_level = new_zoom
+        self._visible_duration_seconds = actual_duration
 
         self.time_range_changed.emit(self._visible_start, self._visible_end)
-        self.zoom_level_changed.emit(self._zoom_level)
+        self.duration_changed.emit(self._visible_duration_seconds)
 
     def pan(self, delta_seconds: float):
         """Pan the viewport by a time delta.
@@ -225,22 +300,25 @@ class ViewportState(QObject):
         start = max(start, self._full_start)
         end = min(end, self._full_end)
 
-        # Calculate new zoom level
-        full_duration = self._full_end - self._full_start
+        # Calculate visible duration
         visible_duration = end - start
         if visible_duration <= timedelta(0):
             # fix zero/negative span
             end = start + timedelta(microseconds=1)
             visible_duration = end - start
-            
-        new_zoom = full_duration / visible_duration
+
+        visible_duration_seconds = visible_duration.total_seconds()
+
+        # Constrain to duration limits
+        visible_duration_seconds = max(self.min_visible_duration,
+                                       min(visible_duration_seconds, self.max_visible_duration))
 
         self._visible_start = start
         self._visible_end = end
-        self._zoom_level = new_zoom
+        self._visible_duration_seconds = visible_duration_seconds
 
         self.time_range_changed.emit(self._visible_start, self._visible_end)
-        self.zoom_level_changed.emit(self._zoom_level)
+        self.duration_changed.emit(self._visible_duration_seconds)
 
     def jump_to_time(self, target_time: datetime):
         """Jump to a specific time, centering it in the viewport.

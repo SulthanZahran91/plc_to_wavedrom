@@ -13,6 +13,37 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon
 from .ClickableLabel import ClickableLabel
 
+
+def format_duration(seconds: float) -> str:
+    """Format duration in seconds to a human-readable string.
+
+    Args:
+        seconds: Duration in seconds
+
+    Returns:
+        Formatted string (e.g., "5.0s", "2m 30s", "1h 15m")
+    """
+    if seconds < 1.0:
+        # Milliseconds
+        return f"{seconds * 1000:.0f}ms"
+    elif seconds < 60:
+        # Seconds
+        return f"{seconds:.1f}s"
+    elif seconds < 3600:
+        # Minutes and seconds
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        if secs == 0:
+            return f"{minutes}m"
+        return f"{minutes}m {secs}s"
+    else:
+        # Hours and minutes
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        if minutes == 0:
+            return f"{hours}h"
+        return f"{hours}h {minutes}m"
+
 class ZoomControls(QWidget):
     """Widget providing zoom controls (buttons, slider, display).
 
@@ -20,13 +51,13 @@ class ZoomControls(QWidget):
         zoom_in_clicked: Emitted when zoom in button is clicked
         zoom_out_clicked: Emitted when zoom out button is clicked
         reset_zoom_clicked: Emitted when reset zoom button is clicked
-        zoom_level_changed: Emitted when slider is moved (float value)
+        duration_changed: Emitted when slider is moved (duration in seconds)
     """
 
     zoom_in_clicked = Signal()
     zoom_out_clicked = Signal()
     reset_zoom_clicked = Signal()
-    zoom_level_changed = Signal(float)
+    duration_changed = Signal(float)  # Emits visible duration in seconds
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -67,12 +98,12 @@ class ZoomControls(QWidget):
         self.zoom_in_btn.clicked.connect(self.zoom_in_clicked)
         layout.addWidget(self.zoom_in_btn)
 
-        # Zoom level display
-        self.zoom_label = ClickableLabel("Zoom: 1.0x")
-        self.zoom_label.setMinimumWidth(90)
+        # Visible duration display
+        self.zoom_label = ClickableLabel("Window: 5m")
+        self.zoom_label.setMinimumWidth(100)
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.zoom_label.setToolTip("Current zoom level")
-        self.zoom_label.zoom_changed.connect(lambda z: self.zoom_level_changed.emit(z))
+        self.zoom_label.setToolTip("Visible time window duration")
+        self.zoom_label.zoom_changed.connect(lambda d: self.duration_changed.emit(d))
         layout.addWidget(self.zoom_label)
 
         # Reset button
@@ -142,41 +173,55 @@ class ZoomControls(QWidget):
         """Handle slider value change.
 
         Args:
-            value: Slider value (0-100)
+            value: Slider value (0-1000)
         """
-        # Map slider value (0-100) to zoom level (1.0-100.0)
+        # Map slider value (0-1000) to duration (max to min)
+        # Slider at 0 = max duration (most zoomed out)
+        # Slider at 1000 = min duration (most zoomed in)
         # Using logarithmic scale for better control
-        min_zoom = 1.0
-        max_zoom = 1000.0
+
+        import math
+        min_duration = 0.001  # 1ms
+        max_duration = 300.0  # 5 minutes
 
         if value == 0:
-            zoom = min_zoom
+            duration = max_duration
+        elif value == 1000:
+            duration = min_duration
         else:
-            # Logarithmic scale
-            import math
-            zoom = min_zoom * math.pow(max_zoom / min_zoom, value / 1000.0)
+            # Logarithmic scale from max to min
+            # Invert the slider so left = more time (zoomed out), right = less time (zoomed in)
+            inverted_value = 1000 - value
+            duration = max_duration * math.pow(min_duration / max_duration, (1000 - inverted_value) / 1000.0)
 
-        self.zoom_level_changed.emit(zoom)
+        self.duration_changed.emit(duration)
 
-    def set_zoom_level(self, zoom: float):
-        """Update the display to show the current zoom level.
+    def set_visible_duration(self, duration_seconds: float, min_duration: float = 0.001, max_duration: float = 300.0):
+        """Update the display to show the current visible duration.
 
         Args:
-            zoom: Current zoom level (1.0 to 100.0)
+            duration_seconds: Current visible duration in seconds
+            min_duration: Minimum duration constraint (for slider mapping)
+            max_duration: Maximum duration constraint (for slider mapping)
         """
-        # Update label
-        self.zoom_label.setText(f"Zoom: {zoom:.1f}x")
+        # Update label with formatted duration
+        self.zoom_label.setText(f"Window: {format_duration(duration_seconds)}")
 
         # Update slider position (without triggering signal)
         import math
-        min_zoom = 1.0
-        max_zoom = 1000.0
 
-        if zoom <= min_zoom:
-            slider_value = 0
+        # Constrain duration to bounds
+        duration_seconds = max(min_duration, min(duration_seconds, max_duration))
+
+        if duration_seconds >= max_duration:
+            slider_value = 0  # Most zoomed out
+        elif duration_seconds <= min_duration:
+            slider_value = 1000  # Most zoomed in
         else:
             # Inverse logarithmic scale
-            slider_value = int(1000.0 * math.log(zoom / min_zoom) / math.log(max_zoom / min_zoom))
+            # Calculate how far we are from max_duration to min_duration
+            ratio = math.log(duration_seconds / max_duration) / math.log(min_duration / max_duration)
+            slider_value = int(ratio * 1000.0)
 
         # Block signals to avoid feedback loop
         self.zoom_slider.blockSignals(True)
@@ -184,8 +229,22 @@ class ZoomControls(QWidget):
         self.zoom_slider.blockSignals(False)
 
         # Update button states
-        self.zoom_in_btn.setEnabled(zoom < max_zoom)
-        self.zoom_out_btn.setEnabled(zoom > min_zoom)
+        self.zoom_in_btn.setEnabled(duration_seconds > min_duration)
+        self.zoom_out_btn.setEnabled(duration_seconds < max_duration)
+
+    def set_zoom_level(self, zoom: float):
+        """Update display using zoom level (for backward compatibility).
+
+        Converts zoom level to duration for display.
+
+        Args:
+            zoom: Current zoom level
+        """
+        # This is for backward compatibility - convert zoom to duration
+        # Assuming a reference duration (e.g., 300 seconds at zoom=1.0)
+        reference_duration = 300.0
+        duration_seconds = reference_duration / zoom
+        self.set_visible_duration(duration_seconds)
 
     def set_enabled(self, enabled: bool):
         """Enable or disable all controls.

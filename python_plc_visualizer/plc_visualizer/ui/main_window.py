@@ -216,7 +216,7 @@ class MainWindow(QMainWindow):
         self.zoom_controls.zoom_in_clicked.connect(self._on_zoom_in)
         self.zoom_controls.zoom_out_clicked.connect(self._on_zoom_out)
         self.zoom_controls.reset_zoom_clicked.connect(self._on_reset_zoom)
-        self.zoom_controls.zoom_level_changed.connect(self._on_zoom_slider_changed)
+        self.zoom_controls.duration_changed.connect(self._on_duration_slider_changed)
         self.zoom_controls.set_enabled(False)
         waveform_layout.addWidget(self.zoom_controls)
 
@@ -444,7 +444,7 @@ class MainWindow(QMainWindow):
 
         # Disconnect previous viewport listeners to avoid duplicates
         try:
-            self._viewport_state.zoom_level_changed.disconnect(self.zoom_controls.set_zoom_level)
+            self._viewport_state.duration_changed.disconnect(self._on_viewport_duration_changed)
         except TypeError:
             pass
         try:
@@ -550,7 +550,7 @@ class MainWindow(QMainWindow):
             self.pan_controls.set_enabled(True)
 
             # Connect viewport state changes to update controls
-            self._viewport_state.zoom_level_changed.connect(self.zoom_controls.set_zoom_level)
+            self._viewport_state.duration_changed.connect(self._on_viewport_duration_changed)
             self._viewport_state.time_range_changed.connect(self._on_viewport_time_range_changed)
 
         # Update upload widget status
@@ -753,13 +753,27 @@ class MainWindow(QMainWindow):
         """Handle reset zoom button click."""
         self._viewport_state.reset_zoom()
 
-    def _on_zoom_slider_changed(self, zoom: float):
-        """Handle zoom slider change.
+    def _on_duration_slider_changed(self, duration_seconds: float):
+        """Handle duration slider change.
 
         Args:
-            zoom: New zoom level from slider
+            duration_seconds: New visible duration from slider
         """
-        self._viewport_state.set_zoom_level(zoom)
+        self._viewport_state.set_visible_duration(duration_seconds)
+
+    def _on_viewport_duration_changed(self, duration_seconds: float):
+        """Handle viewport duration change.
+
+        Updates zoom controls to reflect the new visible duration.
+
+        Args:
+            duration_seconds: New visible duration in seconds
+        """
+        self.zoom_controls.set_visible_duration(
+            duration_seconds,
+            min_duration=self._viewport_state.min_visible_duration,
+            max_duration=self._viewport_state.max_visible_duration
+        )
 
     def _on_wheel_zoom(self, delta: int):
         """Handle mouse wheel zoom.

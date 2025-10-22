@@ -25,11 +25,12 @@ except ImportError:  # pragma: no cover
                 return False
         sip = _DummySip()
 
-from plc_visualizer.models import ParsedLog
+from plc_visualizer.models import ParsedLog, ChunkedParsedLog
 from plc_visualizer.utils import (
     SignalData,
     process_signals_for_waveform,
     compute_signal_states,
+    ChunkManager,
 )
 from .time_axis_item import TimeAxisItem
 from .signal_item import SignalItem
@@ -51,6 +52,7 @@ class WaveformScene(QGraphicsScene):
         super().__init__(parent)
 
         self.parsed_log = None
+        self.chunk_manager = None  # For chunked data loading
         self.signal_items = []  # Waveform items only
         self.label_items = []  # Signal label items
         self.row_items = []
@@ -67,25 +69,33 @@ class WaveformScene(QGraphicsScene):
         # Current visible time range (for viewport culling)
         self.visible_time_range = None
 
+        # Viewport state for zoom constraints
+        self._viewport_state = None
+
         self.setBackgroundBrush(self.palette().window())
 
     def set_data(
         self,
-        parsed_log: ParsedLog,
+        parsed_log: ParsedLog | ChunkedParsedLog | None = None,
         signal_data_list: list[SignalData] | None = None,
-        lazy: bool = True
+        lazy: bool = True,
+        chunk_manager: ChunkManager | None = None
     ):
         """Set the parsed log data and render waveforms.
 
         Memory optimization: Uses lazy loading by default to avoid
         computing states for all signals upfront.
 
+        For gigabyte-scale files, use chunk_manager to enable on-demand loading.
+
         Args:
-            parsed_log: ParsedLog containing entries to visualize
+            parsed_log: ParsedLog or ChunkedParsedLog containing entries to visualize
             signal_data_list: Pre-computed signal data (optional)
             lazy: If True, compute states only for visible signals (default)
+            chunk_manager: ChunkManager for on-demand chunk loading (for large files)
         """
         self.parsed_log = parsed_log
+        self.chunk_manager = chunk_manager
         self.visible_time_range = parsed_log.time_range if parsed_log else None
 
         # Reset collections
@@ -103,8 +113,13 @@ class WaveformScene(QGraphicsScene):
             return
 
         if signal_data_list is None:
-            # Use lazy loading by default for memory efficiency
-            signal_data_list = process_signals_for_waveform(parsed_log, lazy=lazy)
+            # For chunked logs, we need to defer signal processing until we have a visible range
+            # For now, just discover signal names from metadata
+            if isinstance(parsed_log, ChunkedParsedLog):
+                signal_data_list = self._create_skeleton_signals(parsed_log)
+            else:
+                # Use lazy loading by default for memory efficiency
+                signal_data_list = process_signals_for_waveform(parsed_log, lazy=lazy)
 
         self.signal_data_map = {signal.key: signal for signal in signal_data_list}
         self.all_signal_names = [signal.key for signal in signal_data_list]
@@ -112,6 +127,14 @@ class WaveformScene(QGraphicsScene):
         self.visible_signal_names = []
 
         self._build_scene()
+
+    def set_viewport_state(self, viewport_state):
+        """Set the viewport state for zoom constraints.
+
+        Args:
+            viewport_state: ViewportState instance
+        """
+        self._viewport_state = viewport_state
 
     def update_width(self, width: float):
         """Update the scene width and redraw all items.
@@ -167,11 +190,17 @@ class WaveformScene(QGraphicsScene):
     def set_time_range(self, start: datetime, end: datetime):
         """Update the visible time range for viewport culling.
 
+        In chunked mode, this also reloads signal data for the new time range.
+
         Args:
             start: Visible start time
             end: Visible end time
         """
         self.visible_time_range = (start, end)
+
+        # In chunked mode, reload signal states for the new time range
+        if self.chunk_manager and isinstance(self.parsed_log, ChunkedParsedLog):
+            self._reload_visible_signals_from_chunks(start, end)
 
         # Update time axis
         if self.time_axis and not sip.isdeleted(self.time_axis):
@@ -221,10 +250,19 @@ class WaveformScene(QGraphicsScene):
 
         # Compute states for newly visible signals that don't have them
         shown_signals = new_visible - old_visible
-        for signal_key in shown_signals:
-            signal_data = self.signal_data_map.get(signal_key)
-            if signal_data and not signal_data.states and self.parsed_log:
-                compute_signal_states(signal_data, self.parsed_log)
+
+        # Handle chunked vs non-chunked mode differently
+        if self.chunk_manager and isinstance(self.parsed_log, ChunkedParsedLog):
+            # In chunked mode, reload data from chunks for the visible time range
+            if self.visible_time_range and shown_signals:
+                start, end = self.visible_time_range
+                self._reload_visible_signals_from_chunks(start, end)
+        else:
+            # In normal mode, compute states from the full ParsedLog
+            for signal_key in shown_signals:
+                signal_data = self.signal_data_map.get(signal_key)
+                if signal_data and not signal_data.states and self.parsed_log:
+                    compute_signal_states(signal_data, self.parsed_log)
 
         self._build_scene()
 
@@ -330,3 +368,98 @@ class WaveformScene(QGraphicsScene):
         self.visible_signal_names = [r.signal_key for r in ordered_rows]
 
         # (no rebuild necessary here; items are already in place)
+
+    def _create_skeleton_signals(self, chunked_log: ChunkedParsedLog) -> list[SignalData]:
+        """Create skeleton SignalData objects from a ChunkedParsedLog.
+
+        These are placeholder objects with metadata but no states yet.
+        States will be loaded on-demand when signals become visible.
+
+        Args:
+            chunked_log: ChunkedParsedLog with signal metadata
+
+        Returns:
+            List of SignalData objects with empty states
+        """
+        signal_data_list = []
+
+        # Get all unique signals from the chunked log metadata
+        for signal_key in sorted(chunked_log.signals):
+            # Signal key format: "device_id::signal_name"
+            if "::" not in signal_key:
+                continue
+
+            device_id, signal_name = signal_key.split("::", 1)
+
+            # Create skeleton SignalData (no states yet)
+            signal_data = SignalData(
+                name=signal_name,
+                device_id=device_id,
+                key=signal_key,
+                signal_type=None,  # Will be determined when we load entries
+                states=[],
+                _entries_count=0
+            )
+
+            signal_data_list.append(signal_data)
+
+        return signal_data_list
+
+    def _reload_visible_signals_from_chunks(self, start_time: datetime, end_time: datetime):
+        """Reload signal states from chunks for the current visible time range.
+
+        This is called when panning/zooming in chunked mode to load new data.
+
+        Args:
+            start_time: Start of visible time range
+            end_time: End of visible time range
+        """
+        if not self.chunk_manager or not isinstance(self.parsed_log, ChunkedParsedLog):
+            return
+
+        # Get entries in the visible range
+        entries = self.chunk_manager.get_entries_in_range(start_time, end_time)
+
+        if not entries:
+            # Clear all states if no entries in range
+            for signal_data in self.signal_data_map.values():
+                signal_data.clear_states()
+            return
+
+        # Group entries by signal
+        from plc_visualizer.utils.waveform_data import calculate_signal_states
+
+        grouped: dict[str, list] = {}
+        for entry in entries:
+            key = f"{entry.device_id}::{entry.signal_name}"
+            if key not in grouped:
+                grouped[key] = []
+            grouped[key].append(entry)
+
+        # Sort entries by timestamp for each signal
+        for key in grouped:
+            grouped[key].sort(key=lambda e: e.timestamp)
+
+        # Update states for visible signals
+        for signal_key in self.visible_signal_names:
+            signal_data = self.signal_data_map.get(signal_key)
+            if not signal_data:
+                continue
+
+            signal_entries = grouped.get(signal_key, [])
+
+            if signal_entries:
+                # Calculate states for this time window
+                signal_data.states = calculate_signal_states(
+                    signal_entries,
+                    (start_time, end_time)
+                )
+                signal_data.build_time_index(start_time)
+                signal_data._entries_count = len(signal_entries)
+
+                # Update signal type from first entry
+                if signal_data.signal_type is None:
+                    signal_data.signal_type = signal_entries[0].signal_type
+            else:
+                # Signal has no entries in this range
+                signal_data.clear_states()

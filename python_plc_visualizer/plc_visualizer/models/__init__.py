@@ -7,6 +7,10 @@ from .data_types import (
     ParseError,
     ParseResult,
 )
+from .chunked_log import (
+    TimeChunk,
+    ChunkedParsedLog,
+)
 
 __all__ = [
     "SignalType",
@@ -14,4 +18,6 @@ __all__ = [
     "ParsedLog",
     "ParseError",
     "ParseResult",
+    "TimeChunk",
+    "ChunkedParsedLog",
 ]

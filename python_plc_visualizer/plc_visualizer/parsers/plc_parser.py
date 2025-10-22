@@ -1,8 +1,9 @@
 import re
 import sys
+from datetime import datetime
 from typing import Optional
 from .base_parser import GenericTemplateLogParser
-from plc_visualizer.models import LogEntry
+from plc_visualizer.models import LogEntry, ParseResult, ParsedLog, ParseError
 from .base_parser import _infer_type_fast, _parse_value_fast
 
 class PLCDebugParser(GenericTemplateLogParser):
@@ -99,6 +100,113 @@ class PLCDebugParser(GenericTemplateLogParser):
             value=value,
             signal_type=stype,
         )
+
+    def parse_time_window(
+        self,
+        file_path: str,
+        start_time: datetime,
+        end_time: datetime
+    ) -> ParseResult:
+        """Optimized time-window parsing for bracket-delimited format.
+
+        Only parses lines within the specified time range instead of the entire file.
+        Assumes log entries are roughly chronologically sorted (typical for PLC logs).
+
+        Args:
+            file_path: Path to log file
+            start_time: Start of time window
+            end_time: End of time window
+
+        Returns:
+            ParseResult with entries in the time range
+        """
+        entries = []
+        errors = []
+        devices = set()
+        signals = set()
+
+        # Track if we've seen any entries in range yet
+        seen_start = False
+        consecutive_out_of_range = 0
+        max_consecutive_out_of_range = 1000  # Stop after this many consecutive entries past end_time
+
+        # Device ID regex for parsing
+        device_id_re = re.compile(r"([A-Za-z0-9_-]+)(?:@[^\]]+)?$")
+
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    try:
+                        # Try fast parse first
+                        entry = self._fast_parse_line(line, device_id_re)
+
+                        if not entry:
+                            # Fallback to regex parse
+                            entry = self._parse_line_hot(line, self.LINE_RE, device_id_re)
+
+                        if not entry:
+                            continue
+
+                        # Check if entry is in time window
+                        if entry.timestamp < start_time:
+                            # Before window - skip
+                            consecutive_out_of_range = 0
+                            continue
+                        elif entry.timestamp >= end_time:
+                            # After window
+                            consecutive_out_of_range += 1
+
+                            # If we've seen entries in range and now we're consistently past it,
+                            # we can stop (assumes chronological order)
+                            if seen_start and consecutive_out_of_range > max_consecutive_out_of_range:
+                                print(f"   ⚡ Early stop at line {line_num} (entries chronologically past time window)")
+                                break
+                            continue
+                        else:
+                            # In window!
+                            seen_start = True
+                            consecutive_out_of_range = 0
+                            entries.append(entry)
+                            devices.add(entry.device_id)
+                            signals.add(f"{entry.device_id}::{entry.signal_name}")
+
+                    except Exception as e:
+                        errors.append(ParseError(
+                            line=line_num,
+                            content=line[:100],
+                            reason=str(e)
+                        ))
+
+        except Exception as e:
+            errors.append(ParseError(
+                line=0,
+                content="",
+                reason=f"File read error: {e}"
+            ))
+            return ParseResult(data=None, errors=errors)
+
+        # Create ParsedLog with filtered entries
+        if entries:
+            parsed_log = ParsedLog(
+                entries=entries,
+                signals=signals,
+                devices=devices,
+                time_range=(start_time, end_time)
+            )
+            return ParseResult(data=parsed_log, errors=errors)
+        else:
+            # No entries in range - return empty but valid result
+            parsed_log = ParsedLog(
+                entries=[],
+                signals=signals,
+                devices=devices,
+                time_range=(start_time, end_time)
+            )
+            return ParseResult(data=parsed_log, errors=errors)
 
 # Register
 from .parser_registry import parser_registry

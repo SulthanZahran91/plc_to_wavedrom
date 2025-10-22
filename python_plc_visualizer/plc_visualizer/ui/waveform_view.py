@@ -119,6 +119,9 @@ class WaveformView(QGraphicsView):
         """
         self._viewport_state = viewport_state
 
+        # Pass viewport state to scene for zoom limits
+        self.waveform_scene.set_viewport_state(viewport_state)
+
         # Connect to viewport changes
         if viewport_state:
             viewport_state.time_range_changed.connect(self._on_time_range_changed)
