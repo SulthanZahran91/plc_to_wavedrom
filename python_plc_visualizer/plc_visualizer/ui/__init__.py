@@ -7,6 +7,7 @@ from .data_table_widget import DataTableWidget
 from .waveform_view import WaveformView
 from .signal_filter_widget import SignalFilterWidget
 from .ClickableLabel import ClickableLabel
+from .integrated_map_viewer import IntegratedMapViewer
 
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     'StatsWidget',
     'DataTableWidget',
     'WaveformView',
-    'SignalFilterWidget'
-    'ClickableLabel'
+    'SignalFilterWidget',
+    'ClickableLabel',
+    'IntegratedMapViewer'
 ]

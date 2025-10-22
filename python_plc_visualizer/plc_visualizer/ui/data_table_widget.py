@@ -1,7 +1,7 @@
 """Widget for displaying parsed log data in a table."""
 
-from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex
+from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QTableView,

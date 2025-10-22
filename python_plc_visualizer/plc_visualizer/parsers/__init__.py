@@ -4,6 +4,7 @@ from .base_parser import BaseParser
 from .parser_registry import ParserRegistry, parser_registry
 from .plc_parser import PLCDebugParser as plc_parser
 from .plc_tab_parser import PLCTabParser as plc_tab_parser
+from .csv_signal_parser import CSVSignalParser as csv_signal_parser
 
 
 __all__ = [
@@ -11,5 +12,6 @@ __all__ = [
     "ParserRegistry",
     "parser_registry",
     "plc_parser",
-    "plc_tab_parser"
+    "plc_tab_parser",
+    "csv_signal_parser"
 ]

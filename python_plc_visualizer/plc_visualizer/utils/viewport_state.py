@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
-from PyQt6.QtCore import QObject, pyqtSignal
+from PySide6.QtCore import QObject, Signal
 
 
 class ViewportState(QObject):
@@ -13,8 +13,8 @@ class ViewportState(QObject):
         zoom_level_changed: Emitted when the zoom level changes
     """
 
-    time_range_changed = pyqtSignal(datetime, datetime)
-    zoom_level_changed = pyqtSignal(float)
+    time_range_changed = Signal(datetime, datetime)
+    zoom_level_changed = Signal(float)
 
     def __init__(self, parent=None):
         super().__init__(parent)

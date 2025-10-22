@@ -2,9 +2,9 @@
 
 from datetime import datetime
 from typing import Optional
-from PyQt6.QtWidgets import QWidget
-from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPointF
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont
+from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Qt, Signal, QRectF, QPointF
+from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QFont
 
 
 class TimeRangeSelector(QWidget):
@@ -14,7 +14,7 @@ class TimeRangeSelector(QWidget):
         time_range_changed: Emitted when the selected range changes (start, end)
     """
 
-    time_range_changed = pyqtSignal(datetime, datetime)
+    time_range_changed = Signal(datetime, datetime)
 
     def __init__(self, parent=None):
         super().__init__(parent)

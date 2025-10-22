@@ -2,9 +2,9 @@
 
 from datetime import datetime
 from typing import Optional
-from PyQt6.QtWidgets import QGraphicsView
-from PyQt6.QtCore import Qt, pyqtSignal, QRectF
-from PyQt6.QtGui import QPainter, QWheelEvent
+from PySide6.QtWidgets import QGraphicsView
+from PySide6.QtCore import Qt, Signal, QRectF
+from PySide6.QtGui import QPainter, QWheelEvent
 
 from .waveform_scene import WaveformScene
 
@@ -16,7 +16,7 @@ class WaveformView(QGraphicsView):
         wheel_zoom: Emitted when mouse wheel zoom is requested (delta)
     """
 
-    wheel_zoom = pyqtSignal(int)
+    wheel_zoom = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)

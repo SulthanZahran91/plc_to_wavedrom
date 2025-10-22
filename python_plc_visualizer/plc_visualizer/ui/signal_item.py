@@ -2,9 +2,9 @@
 
 from datetime import datetime
 
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsSimpleTextItem
-from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QBrush
-from PyQt6.QtCore import QRectF
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsSimpleTextItem
+from PySide6.QtGui import QPainter, QColor, QPen, QFont, QBrush
+from PySide6.QtCore import QRectF
 
 from plc_visualizer.models import SignalType
 from plc_visualizer.utils import SignalData

@@ -6,8 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Dict, List, Set
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -41,8 +41,8 @@ class SignalInfo:
 class SignalFilterWidget(QWidget):
     """Widget providing rich filtering controls for signals."""
 
-    visible_signals_changed = pyqtSignal(list)
-    plot_intervals_requested = pyqtSignal(str)
+    visible_signals_changed = Signal(list)
+    plot_intervals_requested = Signal(str)
 
     DEBOUNCE_MS = 200
 

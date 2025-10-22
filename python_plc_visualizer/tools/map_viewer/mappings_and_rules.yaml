@@ -1,0 +1,110 @@
+# map_viewer/mappings_and_rules.yaml
+# Configuration for device-to-unit mapping and signal-based color rules
+
+default_color: "#D3D3D3"  # Light gray - default/neutral state
+
+# Device ID to UnitID mapping
+# Maps device_id patterns (with wildcards) to UnitId values from the XML
+device_to_unit:
+  # Conveyor belts
+  - pattern: "B1ACNV*@*"
+    unit_id: "*"  # Use the prefix before @ as unit_id
+  # Diverters
+  - pattern: "B1ACDV*@*"
+    unit_id: "*"
+  # Ports
+  - pattern: "B1ACPT*@*"
+    unit_id: "*"
+
+# Color rules based on signal values
+# Each rule specifies: signal name, operator, value, resulting color, and priority
+# Higher priority rules are evaluated first
+
+rules:
+  # Status-based colors (highest priority)
+  - signal: "Status"
+    op: "=="
+    value: "Running"
+    color: "#00C853"  # Green - running
+    priority: 100
+
+  - signal: "Status"
+    op: "=="
+    value: "Error"
+    color: "#D50000"  # Red - error
+    priority: 100
+
+  - signal: "Status"
+    op: "=="
+    value: "Stopped"
+    color: "#FFD600"  # Yellow - stopped
+    priority: 100
+
+  - signal: "Status"
+    op: "=="
+    value: "Idle"
+    color: "#B0BEC5"  # Blue-gray - idle
+    priority: 100
+
+  # Signal A state colors
+  - signal: "A"
+    op: "=="
+    value: 0
+    color: "#ECEFF1"  # Very light gray
+    priority: 10
+
+  - signal: "A"
+    op: "=="
+    value: 1
+    color: "#FFEB3B"  # Yellow
+    priority: 10
+
+  - signal: "A"
+    op: "=="
+    value: 2
+    color: "#4CAF50"  # Green
+    priority: 10
+
+  - signal: "A"
+    op: "=="
+    value: 3
+    color: "#2196F3"  # Blue
+    priority: 10
+
+  # Signal B threshold colors
+  - signal: "B"
+    op: ">"
+    value: 80
+    color: "#D50000"  # Red - high value
+    priority: 50
+
+  - signal: "B"
+    op: ">"
+    value: 50
+    color: "#FF9800"  # Orange - medium-high
+    priority: 40
+
+  - signal: "B"
+    op: ">"
+    value: 20
+    color: "#FFC107"  # Amber - medium
+    priority: 30
+
+  # Speed-based colors
+  - signal: "Speed"
+    op: ">"
+    value: 1.0
+    color: "#1976D2"  # Dark blue - fast
+    priority: 20
+
+  - signal: "Speed"
+    op: ">"
+    value: 0.5
+    color: "#42A5F5"  # Light blue - medium
+    priority: 15
+
+  - signal: "Speed"
+    op: ">"
+    value: 0.0
+    color: "#90CAF9"  # Very light blue - slow
+    priority: 10

@@ -2,8 +2,8 @@
 
 from datetime import datetime
 
-from PyQt6.QtGui import QPainterPath, QColor, QPen, QFont
-from PyQt6.QtCore import Qt, QRectF
+from PySide6.QtGui import QPainterPath, QColor, QPen, QFont
+from PySide6.QtCore import Qt, QRectF
 
 from plc_visualizer.utils import SignalData
 from .base_renderer import BaseRenderer
