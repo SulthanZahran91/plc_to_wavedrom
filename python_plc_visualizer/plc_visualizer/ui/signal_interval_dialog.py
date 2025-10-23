@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Iterable, List, Optional, Tuple
 
-from PySide6.QtCore import Qt, QRectF, QSize, QPointF
+from PySide6.QtCore import Qt, QRectF, QSize, QPointF, QSignalBlocker
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -239,10 +239,10 @@ def _nice_tick_step(max_value: float, target_ticks: int = 5) -> float:
     return nice * (10 ** exp)
 
 
-def _percentile(values: List[float], p: float) -> float:
+def _percentile(values: List[float], p: float, *, already_sorted: bool = False) -> float:
     if not values:
         return 0.0
-    vals = sorted(values)
+    vals = values if already_sorted else sorted(values)
     if p <= 0:
         return vals[0]
     if p >= 1:
@@ -305,6 +305,7 @@ class IntervalPlotWidget(QWidget):
         super().__init__(parent)
         self._intervals: List[IntervalPoint] = []
         self._durations: List[float] = []
+        self._durations_sorted: List[float] = []
         self._points_sorted: List[IntervalPoint] = []
         self._t0: Optional[datetime] = None
 
@@ -339,20 +340,21 @@ class IntervalPlotWidget(QWidget):
         self._intervals = list(intervals)
         self._points_sorted = sorted(self._intervals, key=lambda p: p.start)
         self._durations = [p.duration_seconds for p in self._intervals]
+        self._durations_sorted = sorted(self._durations)
         self._t0 = self._points_sorted[0].start if self._points_sorted else None
-        self._recalc_stats_and_bins()
+        self._update_scale(recompute_bins=True)
         self.update()
 
     def set_cap_percentile(self, cap_percentile: float):
         """0..1 inclusive; use 1.0 for no cap."""
         self._cap_p = float(max(0.0, min(1.0, cap_percentile)))
-        self._recalc_stats_and_bins()
+        self._update_scale(recompute_bins=False)
         self.update()
 
     def set_floor_percentile(self, floor_percentile: float):
         """0..1 inclusive; default 0.0 (min). Increases the lower baseline."""
         self._floor_p = float(max(0.0, min(1.0, floor_percentile)))
-        self._recalc_stats_and_bins()
+        self._update_scale(recompute_bins=False)
         self.update()
 
     def set_show_band(self, show: bool):
@@ -362,7 +364,7 @@ class IntervalPlotWidget(QWidget):
     def set_bin_duration(self, seconds: float):
         """Set fixed bin window size (seconds)."""
         self._bin_duration_s = max(1e-9, float(seconds))
-        self._recalc_stats_and_bins()
+        self._update_scale(recompute_bins=True)
         self.update()
 
     # -------- QWidget overrides --------
@@ -562,27 +564,29 @@ class IntervalPlotWidget(QWidget):
 
     # -------- Internals --------
 
-    def _recalc_stats_and_bins(self):
+    def _update_scale(self, *, recompute_bins: bool):
         # Y-range from current durations, based on percentiles
         if not self._durations:
             self._y_min, self._y_max = 0.0, 1.0
-            self._bins = []
+            if recompute_bins or self._bins:
+                self._bins = []
             return
 
-        durs = self._durations
-        lo = _percentile(durs, self._floor_p)
-        hi = _percentile(durs, self._cap_p)
+        durs_sorted = self._durations_sorted if self._durations_sorted else sorted(self._durations)
+        lo = _percentile(durs_sorted, self._floor_p, already_sorted=True)
+        hi = _percentile(durs_sorted, self._cap_p, already_sorted=True)
         if self._cap_p >= 1.0:
-            hi = max(durs)
+            hi = durs_sorted[-1]
         if hi <= lo:
             eps = max(1e-9, abs(hi) * 1e-6 + 1e-9)
-            lo, hi = lo - eps, hi + eps
+            lo -= eps
+            hi += eps
         pad = 0.04 * (hi - lo)
         self._y_min = lo - pad
         self._y_max = hi + pad
 
-        # rebuild bins
-        self._bins = self._make_time_bins(self._points_sorted, self._bin_duration_s)
+        if recompute_bins or not self._bins:
+            self._bins = self._make_time_bins(self._points_sorted, self._bin_duration_s)
 
     def _map_y(self, value: float, y0: float, y1: float, rect: QRectF) -> float:
         if y1 <= y0:
@@ -660,6 +664,7 @@ class IntervalPlotWidget(QWidget):
 # =========================
 
 class SignalIntervalDialog(QDialog):
+    MAX_TABLE_ROWS = 5000
     """Dialog that presents interval statistics and a binned line plot with mode switches."""
 
     def __init__(self, signal_data: SignalData, parent: QWidget | None = None):
@@ -668,6 +673,7 @@ class SignalIntervalDialog(QDialog):
         super().__init__(qt_parent)
 
         self.signal_data = signal_data
+        self._bin_duration_user_overridden = False
 
         self.setWindowTitle(f"Transition Intervals — {signal_data.display_label}")
         self.resize(980, 720)
@@ -793,6 +799,7 @@ class SignalIntervalDialog(QDialog):
         self.plot_widget.set_cap_percentile(val / 100.0)
 
     def _on_bin_dur_changed(self, val: float):
+        self._bin_duration_user_overridden = True
         self.plot_widget.set_bin_duration(val)
 
     def _on_mode_changed(self, _: bool):
@@ -814,6 +821,9 @@ class SignalIntervalDialog(QDialog):
 
     def _set_intervals(self, intervals: List[IntervalPoint]):
         # push to plot (this recomputes stats from CURRENT intervals)
+        if intervals and not self._bin_duration_user_overridden:
+            self._set_default_bin_duration(intervals)
+
         self.plot_widget.set_show_band(self.cb_band.isChecked())
         self.plot_widget.set_cap_percentile(self.sb_cap.value() / 100.0)
         self.plot_widget.set_bin_duration(self.sb_bin_dur.value())
@@ -827,25 +837,80 @@ class SignalIntervalDialog(QDialog):
         return value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
     def _populate_table(self, intervals: List[IntervalPoint]):
-        self.table.setRowCount(len(intervals))
-        font_bold = QFont(); font_bold.setBold(True)
+        self.table.setUpdatesEnabled(False)
+        try:
+            self.table.clearContents()
+            self.table.clearSpans()
 
-        for row, point in enumerate(intervals):
-            items = [
-                QTableWidgetItem(str(point.index)),
-                QTableWidgetItem(str(point.from_value)),
-                QTableWidgetItem(str(point.to_value)),
-                QTableWidgetItem(self._format_timestamp(point.start)),
-                QTableWidgetItem(f"{point.duration_seconds:.6f}"),
-            ]
-            for col, item in enumerate(items):
-                if col == 0:
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    item.setFont(font_bold)
-                elif col == 4:
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                else:
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                self.table.setItem(row, col, item)
+            total = len(intervals)
+            if total == 0:
+                self.table.setRowCount(0)
+                return
 
-        self.table.resizeColumnsToContents()
+            max_rows = self.MAX_TABLE_ROWS
+            if total > max_rows:
+                head_count = max_rows // 2
+                tail_count = max_rows - head_count
+                display_rows: List[Optional[IntervalPoint]] = (
+                    intervals[:head_count] + [None] + intervals[-tail_count:]
+                )
+            else:
+                display_rows = list(intervals)
+
+            self.table.setRowCount(len(display_rows))
+            font_bold = QFont(); font_bold.setBold(True)
+
+            for row, point in enumerate(display_rows):
+                if point is None:
+                    skipped = total - max_rows
+                    ellipsis = QTableWidgetItem(f"… {skipped} intervals omitted for responsiveness …")
+                    ellipsis.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    ellipsis.setFlags(Qt.ItemFlag.NoItemFlags)
+                    ellipsis.setFont(font_bold)
+                    self.table.setItem(row, 0, ellipsis)
+                    self.table.setSpan(row, 0, 1, self.table.columnCount())
+                    continue
+
+                items = [
+                    QTableWidgetItem(str(point.index)),
+                    QTableWidgetItem(str(point.from_value)),
+                    QTableWidgetItem(str(point.to_value)),
+                    QTableWidgetItem(self._format_timestamp(point.start)),
+                    QTableWidgetItem(f"{point.duration_seconds:.6f}"),
+                ]
+                for col, item in enumerate(items):
+                    if col == 0:
+                        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                        item.setFont(font_bold)
+                    elif col == 4:
+                        item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                    else:
+                        item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                    self.table.setItem(row, col, item)
+
+            if len(display_rows) <= 500:
+                self.table.resizeColumnsToContents()
+            self.table.scrollToTop()
+        finally:
+            self.table.setUpdatesEnabled(True)
+
+    def _set_default_bin_duration(self, intervals: List[IntervalPoint]):
+        starts = [point.start for point in intervals]
+        if not starts:
+            return
+
+        min_start = min(starts)
+        max_start = max(starts)
+        span_seconds = max((max_start - min_start).total_seconds(), 0.0)
+
+        if span_seconds <= 0:
+            representative = intervals[0].duration_seconds if intervals else 0.0
+            target_duration = max(representative, 1e-6)
+        else:
+            target_duration = span_seconds / 50.0
+
+        target_duration = max(self.sb_bin_dur.minimum(), min(target_duration, self.sb_bin_dur.maximum()))
+
+        blocker = QSignalBlocker(self.sb_bin_dur)
+        self.sb_bin_dur.setValue(target_duration)
+        del blocker

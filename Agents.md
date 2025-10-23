@@ -1,0 +1,1 @@
+please use UV instead of normal python commands.

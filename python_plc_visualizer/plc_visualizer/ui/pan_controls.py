@@ -1,6 +1,6 @@
 """Pan controls widget for time navigation."""
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QLabel,
     QScrollBar,
+    QComboBox,
 )
 from PySide6.QtCore import Qt, Signal, QTime
 
@@ -31,6 +32,7 @@ class PanControls(QWidget):
         super().__init__(parent)
         self._full_start: datetime = None
         self._full_end: datetime = None
+        self._available_dates: list[date] = []
         self._init_ui()
 
     def _init_ui(self):
@@ -68,6 +70,13 @@ class PanControls(QWidget):
         jump_label = QLabel("Jump to:")
         jump_label.setToolTip("Enter time in HH:MM:SS format")
         layout.addWidget(jump_label)
+
+        self.date_combo = QComboBox()
+        self.date_combo.setFixedWidth(120)
+        self.date_combo.setToolTip("Select date within loaded range")
+        self.date_combo.currentIndexChanged.connect(self._on_date_changed)
+        self.date_combo.setEnabled(False)
+        layout.addWidget(self.date_combo)
 
         self.time_input = QLineEdit()
         self.time_input.setPlaceholderText("HH:MM:SS")
@@ -161,10 +170,19 @@ class PanControls(QWidget):
         if not time_text:
             return
 
+        selected_date = self.date_combo.currentData()
+        if selected_date is None:
+            self.date_combo.setStyleSheet("border: 2px solid red;")
+            return
+        else:
+            self.date_combo.setStyleSheet("")
+
         # Parse time input (HH:MM:SS)
         try:
             # Try parsing as QTime
-            time_obj = QTime.fromString(time_text, "HH:mm:ss")
+            time_obj = QTime.fromString(time_text, "HH:mm:ss.zzz")
+            if not time_obj.isValid():
+                time_obj = QTime.fromString(time_text, "HH:mm:ss")
             if not time_obj.isValid():
                 # Try without seconds
                 time_obj = QTime.fromString(time_text, "HH:mm")
@@ -174,27 +192,22 @@ class PanControls(QWidget):
                 return
 
             # Create datetime with the parsed time
-            if self._full_start is not None:
-                # Use the date from full_start, but the time from input
-                target = datetime.combine(
-                    self._full_start.date(),
-                    datetime.min.time()
-                ).replace(
-                    hour=time_obj.hour(),
-                    minute=time_obj.minute(),
-                    second=time_obj.second()
-                )
+            base_dt = datetime.combine(selected_date, datetime.min.time())
+            target = base_dt.replace(
+                hour=time_obj.hour(),
+                minute=time_obj.minute(),
+                second=time_obj.second(),
+                microsecond=time_obj.msec() * 1000,
+            )
 
-                if self._full_end is not None:
-                    # Clamp target within available range
-                    if target < self._full_start:
-                        target = self._full_start
-                    elif target > self._full_end:
-                        target = self._full_end
+            if self._full_start is not None and target < self._full_start:
+                target = self._full_start
+            if self._full_end is not None and target > self._full_end:
+                target = self._full_end
 
-                self.jump_to_time.emit(target)
-                self.time_input.setStyleSheet("")  # Clear error style
-                self.time_input.clear()
+            self.jump_to_time.emit(target)
+            self.time_input.setStyleSheet("")  # Clear error style
+            self.time_input.clear()
 
         except Exception:
             self.time_input.setStyleSheet("border: 2px solid red;")
@@ -228,9 +241,9 @@ class PanControls(QWidget):
         self._full_start = start
         self._full_end = end
 
-        # Update tooltip with time range
-        time_range_str = f"{start.strftime('%H:%M:%S')} - {end.strftime('%H:%M:%S')}"
-        self.time_input.setToolTip(f"Enter time between {time_range_str}")
+        self._available_dates = self._build_available_dates(start, end)
+        self._populate_date_combo()
+        self._update_time_tooltip()
 
     def set_enabled(self, enabled: bool):
         """Enable or disable all controls.
@@ -241,5 +254,53 @@ class PanControls(QWidget):
         self.pan_left_btn.setEnabled(enabled)
         self.pan_right_btn.setEnabled(enabled)
         self.scroll_bar.setEnabled(enabled)
-        self.time_input.setEnabled(enabled)
-        self.go_btn.setEnabled(enabled)
+        has_dates = bool(self._available_dates)
+        self.time_input.setEnabled(enabled and has_dates)
+        self.go_btn.setEnabled(enabled and has_dates)
+        self.date_combo.setEnabled(enabled and bool(self._available_dates))
+
+    def _build_available_dates(self, start: datetime, end: datetime) -> list[date]:
+        if not start or not end:
+            return []
+        days: list[date] = []
+        cursor = start.date()
+        last = end.date()
+        while cursor <= last:
+            days.append(cursor)
+            cursor += timedelta(days=1)
+        return days
+
+    def _populate_date_combo(self):
+        self.date_combo.blockSignals(True)
+        self.date_combo.clear()
+        for day in self._available_dates:
+            self.date_combo.addItem(day.strftime("%Y-%m-%d"), day)
+        has_dates = bool(self._available_dates)
+        self.date_combo.setEnabled(has_dates)
+        if has_dates:
+            self.date_combo.setCurrentIndex(0)
+        self.date_combo.blockSignals(False)
+        self._update_time_tooltip()
+        self.date_combo.setStyleSheet("")
+
+    def _update_time_tooltip(self):
+        if not self._available_dates or self._full_start is None or self._full_end is None:
+            self.time_input.setToolTip("Enter time and press Enter to jump")
+            return
+
+        selected_date = self.date_combo.currentData()
+        if selected_date is None:
+            self.time_input.setToolTip("Select a date, then enter time to jump")
+            return
+
+        day_start = datetime.combine(selected_date, datetime.min.time())
+        day_end = datetime.combine(selected_date, datetime.max.time())
+        clamped_start = max(day_start, self._full_start)
+        clamped_end = min(day_end, self._full_end)
+
+        time_range_str = f"{clamped_start.strftime('%H:%M:%S')} - {clamped_end.strftime('%H:%M:%S')}"
+        self.time_input.setToolTip(f"Enter time between {time_range_str}")
+
+    def _on_date_changed(self, _index: int):
+        self._update_time_tooltip()
+        self.date_combo.setStyleSheet("")

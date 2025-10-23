@@ -1,203 +1,23 @@
-# **PLC Log Visualizer - Multi-Step Implementation Specs (Python + Qt)**
+# PLC Log Visualizer – Working TODO
 
-## **STEP 1: Project Setup & Log File Parser**
+Updated backlog of tasks to keep the project healthy. Revisit after significant feature work.
 
-### Objective:
-Create the foundation - a desktop application that can parse PLC log files and display the raw data.
+## High Priority
+- **Broaden automated tests:** add parser-specific pytest modules (debug/tab/CSV fixtures), merge utility tests, and smoke pytest-qt coverage for the timing diagram and log table windows.
+- **Document CSV ingestion:** provide sample logs, update `generate_random_log.py` and docs so the `csv_signal` parser stays exercised.
+- **Error surfacing:** promote parse warnings into richer stats output (group errors by file, expose quick export).
+- **Chunked parsing benchmarks:** capture runtime/memory metrics for large files and document recommended worker counts for `ParserThread._compute_signal_data`.
 
-### Technical Requirements:
-1. **Project Structure:**
-   - Python 3.10+ with PyQt6
-   - Dependencies: `PyQt6`, `pytest`, `dataclasses`
-   - Folder structure:
-     ```
-     plc_visualizer/
-       __init__.py
-       models/
-         __init__.py
-         data_types.py
-       parsers/
-         __init__.py
-         base_parser.py
-         default_parser.py
-         parser_registry.py
-       ui/
-         __init__.py
-         main_window.py
-         file_upload_widget.py
-         stats_widget.py
-         data_table_widget.py
-       utils/
-         __init__.py
-       tests/
-         __init__.py
-         test_parser.py
-       main.py
-     ```
+## Medium Priority
+- **CLI/headless pipeline:** reuse parsers + waveform processors to export summaries (`--summary`, `--states`) without launching the GUI.
+- **Map viewer polish:** persist playback settings, expose color-rule reload, and add a “jump to current waveform time” action from the main window.
+- **Packaging:** draft PyInstaller/FBS recipe or flatpak for desktop distribution; capture Qt plugins required on each platform.
+- **UX copy audit:** align status texts, dialog titles, and button labels across main/timing/log/map windows.
 
-2. **Data Types (models/data_types.py):**
-   ```python
-   from dataclasses import dataclass
-   from datetime import datetime
-   from typing import Literal, Union
-   from enum import Enum
-
-   class SignalType(Enum):
-       BOOLEAN = "boolean"
-       STRING = "string"
-       INTEGER = "integer"
-
-   @dataclass
-   class LogEntry:
-       signal_name: str
-       timestamp: datetime
-       value: Union[bool, str, int]
-       signal_type: SignalType
-
-   @dataclass
-   class ParsedLog:
-       entries: list[LogEntry]
-       signals: set[str]
-       time_range: tuple[datetime, datetime]
-
-   @dataclass
-   class ParseError:
-       line: int
-       content: str
-       reason: str
-
-   @dataclass
-   class ParseResult:
-       data: ParsedLog | None
-       errors: list[ParseError]
-   ```
-
-3. **Parser Architecture (parsers/):**
-   - **Base Class:** `BaseParser` - abstract class all parsers must inherit
-   - **Default Parser:** Parse log format: `SIGNAL_NAME HH:MM:SS value type`
-   - **Parser Registry:** Allow registering custom parsers
-   - Handle multiple date/time formats
-   - Validate each line and collect errors
-   - Return structured data + parsing errors
-   - **Streaming support:** Parse files line-by-line for memory efficiency
-   - **Pluggable design:** Easy to add new parsers (CSV, XML, etc.) without modifying core logic
-
-4. **UI Components (Qt Widgets):**
-   - File upload with drag-and-drop zone (QWidget with dragEnterEvent)
-   - Progress bar during parsing (QProgressBar)
-   - Display parsing errors if any (QTextEdit with error formatting)
-   - Show basic stats: total entries, unique signals, time range (custom QWidget)
-   - Display raw parsed data in a table (QTableView with custom model)
-
-### Testing Requirements:
-1. **Unit Tests (tests/test_parser.py using pytest):**
-   - Parse valid log entries correctly
-   - Handle invalid lines gracefully
-   - Parse boolean values (true/false, 0/1)
-   - Parse string values
-   - Parse integer values
-   - Handle timestamps correctly
-   - Detect signal types automatically
-   - Return errors for malformed lines
-   - Test streaming parsing for large files
-
-2. **Test Data:**
-   Create sample log file (`test_data/sample.log`):
-   ```
-   DEVICE_A MOTOR_START 10:30:45 true boolean
-   DEVICE_A SENSOR_A 10:30:46 ready string
-   DEVICE_A COUNTER_1 10:30:47 100 integer
-   DEVICE_A MOTOR_START 10:30:50 false boolean
-   DEVICE_A SENSOR_A 10:30:51 error string
-   INVALID LINE HERE
-   DEVICE_A COUNTER_1 10:30:52 150 integer
-   ```
-
-3. **Integration Tests (tests/test_ui.py using pytest-qt):**
-   - Upload file and verify parsing completes
-   - Verify UI shows correct number of entries
-   - Verify error messages appear for invalid lines
-   - Test drag-and-drop functionality
-
-### User Expectations:
-- [ ] User can click or drag-drop a log file onto the window
-- [ ] User sees a progress bar while file is being parsed
-- [ ] User sees a summary: "Parsed 1,247 entries, 45 unique signals, from 10:30:00 to 14:25:33"
-- [ ] If there are parsing errors, user sees: "Warning: 3 lines could not be parsed" with expandable details
-- [ ] User sees a table with columns: Device ID | Signal Name | Timestamp | Value | Type
-- [ ] Table efficiently displays all entries (virtualized scrolling for 1GB+ files)
-- [ ] User can load a different file and see new results
-- [ ] Application starts quickly and uses minimal memory when idle
-
----
-
-## **STEP 2: Basic Waveform Visualization**
-
-### Objective:
-Render signals as timing diagram waves using Qt Graphics View Framework.
-
-### Technical Requirements:
-1. **New Components (ui/):**
-   - `waveform_view.py` - QGraphicsView for displaying waveforms
-   - `waveform_scene.py` - QGraphicsScene containing all waveform items
-   - `time_axis_item.py` - Custom QGraphicsItem for time scale
-   - `signal_item.py` - Custom QGraphicsItem for single signal
-
-2. **Waveform Renderer (ui/renderers/):**
-   - `base_renderer.py` - Abstract base for signal renderers
-   - `boolean_renderer.py` - Draw high/low square waves
-   - `state_renderer.py` - Draw labeled state boxes for string/integer
-   - Draw time axis with labels
-   - Draw signal names on the left
-   - Handle viewport transformations and scaling
-   - **Hardware-accelerated rendering** via Qt's OpenGL backend
-
-3. **Data Processing:**
-   - Group log entries by signal name
-   - Sort entries by timestamp for each signal
-   - Calculate signal state durations
-
-4. **UI Layout:**
-   - Split view: Signal list (left) + Waveform canvas (right)
-   - Show all signals initially
-   - Fixed height per signal (e.g., 40px)
-   - Scrollable canvas for many signals
-
-5. **Styling:**
-   - Boolean high = green, low = gray
-   - String/integer states = blue boxes with centered text
-   - Grid lines for time reference
-   - Clear signal name labels
-
-### Testing Requirements:
-1. **Unit Tests (waveformRenderer.test.ts):**
-   - Calculate correct pixel positions for timestamps
-   - Draw boolean signal transitions correctly
-   - Draw string state boxes with correct widths
-   - Handle edge cases (single entry, no transitions)
-   - Scale time axis correctly
-
-2. **Visual Tests:**
-   - Create test log with known pattern
-   - Verify visual output matches expected diagram
-   - Test with 1 signal, 10 signals, 100 signals
-
-3. **Performance Tests:**
-   - Render 100 signals in < 500ms
-   - Canvas renders without blocking UI
-
-### User Expectations:
-- [ ] User sees timing diagram automatically after file is parsed
-- [ ] Boolean signals show as square waves (high/low)
-- [ ] String signals show as labeled boxes with the string value inside
-- [ ] Integer signals show as labeled boxes with the number inside
-- [ ] Time axis at top shows timestamps
-- [ ] Signal names are clearly visible on the left
-- [ ] User can scroll vertically to see all signals
-- [ ] Diagram fills the available width
-- [ ] Colors are distinct and readable
-
----
+## Low Priority / Ideas
+- **Waveform exports:** enable PNG/SVG export of the visible timing diagram (respecting zoom/pan).
+- **Rule editor UI:** provide an in-app editor for `mappings_and_rules.yaml` instead of manual YAML edits.
+- **Telemetry hooks:** optional logging of parse durations, signal counts, and viewport interactions for real-world diagnostics.
 
 ## **STEP 3: Time Navigation & Zoom**
 

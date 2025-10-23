@@ -25,12 +25,17 @@ class MediaControls(QWidget):
         self.lbl_current_time.setMinimumWidth(110)
         self.lbl_current_time.setToolTip("Current timestamp")
 
+        self.cmb_date = QComboBox(self)
+        self.cmb_date.setToolTip("Select the date to preview")
+        self.cmb_date.setFixedWidth(130)
+
         self.txt_time = QLineEdit(self)
-        self.txt_time.setPlaceholderText("hh:mm:ss.mmm")
-        self.txt_time.setFixedWidth(130)
+        self.txt_time.setPlaceholderText("HH:MM:SS.mmm")
+        self.txt_time.setFixedWidth(120)
+        self.txt_time.setToolTip("Enter a time of day for the selected date")
 
         self.cmb_speed = QComboBox(self)
-        self.cmb_speed.addItems(["0.25×", "0.5×", "1.0×", "1.25×", "1.5×", "2.0×"])
+        self.cmb_speed.addItems(["0.25×", "0.5×", "1.0×", "1.25×", "1.5×", "2.0×", "4.0×", "8.0×", "16.0×"])
         self.cmb_speed.setCurrentText("1.0×")
         self.cmb_speed.setFixedWidth(90)
 
@@ -39,5 +44,6 @@ class MediaControls(QWidget):
         lay.addWidget(self.btn_fwd_10s)
         lay.addWidget(self.media_slider, 1)
         lay.addWidget(self.lbl_current_time)
+        lay.addWidget(self.cmb_date)
         lay.addWidget(self.txt_time)
         lay.addWidget(self.cmb_speed)

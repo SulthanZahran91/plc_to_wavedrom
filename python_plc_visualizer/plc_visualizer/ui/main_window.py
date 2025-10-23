@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QApplication,
-    QInputDialog,
+    QDialog,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -30,9 +30,10 @@ from plc_visualizer.utils import (
 )
 from .file_upload_widget import FileUploadWidget
 from .stats_widget import StatsWidget
-from .signal_interval_dialog import SignalIntervalDialog
 from .timing_diagram_window import TimingDiagramWindow
 from .log_table_window import LogTableWindow
+from .signal_interval_dialog import SignalIntervalDialog
+from .signal_selection_dialog import SignalSelectionDialog
 
 
 class ParserThread(QThread):
@@ -126,6 +127,7 @@ class MainWindow(QMainWindow):
         self._timing_window: Optional[TimingDiagramWindow] = None
         self._table_window: Optional[LogTableWindow] = None
         self._map_viewer_window = None
+        self._interval_windows: dict[str, SignalIntervalDialog] = {}
 
         self.stats_widget: Optional[StatsWidget] = None
 
@@ -397,17 +399,9 @@ class MainWindow(QMainWindow):
             self._open_signal_interval_for_key(self._signal_data_list[0].key)
             return
 
-        options = sorted(signal.key for signal in self._signal_data_list)
-        selected_key, ok = QInputDialog.getItem(
-            self,
-            "Select Signal",
-            "Choose a signal to plot:",
-            options,
-            0,
-            False,
-        )
-        if ok and selected_key:
-            self._open_signal_interval_for_key(selected_key)
+        dialog = SignalSelectionDialog(self._signal_data_list, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_key:
+            self._open_signal_interval_for_key(dialog.selected_key)
 
     def _open_signal_interval_for_key(self, signal_key: str):
         """Open the signal interval dialog for a specific signal key."""
@@ -431,8 +425,26 @@ class MainWindow(QMainWindow):
             )
             return
 
-        dialog = SignalIntervalDialog(signal_data, self)
-        dialog.exec()
+        existing = self._interval_windows.get(signal_key)
+        if existing is not None:
+            try:
+                existing.show()
+                existing.raise_()
+                existing.activateWindow()
+                return
+            except RuntimeError:
+                self._interval_windows.pop(signal_key, None)
+
+        window = SignalIntervalDialog(signal_data, self)
+        window.setModal(False)
+        window.setWindowModality(Qt.WindowModality.NonModal)
+        window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        window.destroyed.connect(lambda _obj=None, key=signal_key: self._interval_windows.pop(key, None))
+        self._interval_windows[signal_key] = window
+
+        window.show()
+        window.raise_()
+        window.activateWindow()
 
     def _on_map_viewer_time_update(self, start_time, _end_time):
         """Update map viewer when waveform time changes."""

@@ -5,18 +5,18 @@ This document describes the PLC Log Visualizer codebase in enough detail for an 
 ---
 
 ## 1. Product Overview
-- **Goal**: Load one or more PLC log files, parse them into structured entries, and offer rich exploration tools (statistics, tabular browsing, signal waveform visualisation, filtering, and transition analytics).
-- **Primary interface**: A desktop GUI built with PyQt6.
-- **Secondary tooling**: Log generators for testing and sample data.
-- **Supported log dialects**: Two structured formats (`plc_debug` and `plc_tab`), with automatic parser detection. Adding new dialects should be straightforward via the parser registry.
-- **Performance targets**: Handle tens of thousands of log rows interactively. Parsing and waveform preprocessing are offloaded to background threads/processes to keep the UI responsive.
+- **Goal**: Load one or more PLC log files, parse them into structured entries, and offer rich exploration tools (statistics, tabular browsing, signal waveform visualisation, filtering, map overlays, and transition analytics).
+- **Primary interface**: A desktop GUI built with PySide6 (Qt for Python).
+- **Secondary tooling**: Log generators, chunked loading demos, and a reusable map viewer package.
+- **Supported log dialects**: Structured formats (`plc_debug`, `plc_tab`, `csv_signal`) with automatic parser detection. Adding new dialects stays straightforward via the parser registry.
+- **Performance targets**: Handle tens of thousands of log rows interactively. Parsing runs on a background thread while waveform preprocessing can hop to a process pool for large datasets.
 
 High-level flow:
 1. User drops log files into the GUI or browses for them.
-2. Files are parsed concurrently. Per-file results and captured errors are merged.
+2. Files are parsed sequentially on a worker thread. Per-file results and captured errors are merged.
 3. Parsed entries are processed into per-signal time-series and waveform-friendly structures.
-4. Visual components subscribe to a shared viewport state to coordinate zoom, pan, and time range selection.
-5. Users filter signals, inspect tabular data, open transition interval plots, and reorder waveform rows via drag-and-drop.
+4. Visual components subscribe to a shared `ViewportState` to coordinate zoom, pan, and time range selection.
+5. Users explore signals through the timing diagram, log table, interval dialog, and optional map viewer.
 
 ---
 
@@ -74,7 +74,7 @@ Recommended project scaffolding:
   - `detect_parser(file_path)` iterates registered parsers, calling `can_parse`. First positive match wins; fallback to default parser if detection fails.
   - `parse(file_path, parser_name=None, num_workers=0)` chooses a parser (auto or explicit) and returns `ParseResult`.
   - `get_parser_names()` returns registered names, used by tooling (e.g., sample log generator).
-- `plc_parser.PLCDebugParser` and `plc_tab_parser.PLCTabParser` register themselves on import. There is no “default” parser shipped in this branch; auto-detection depends entirely on the two specialised parsers.
+- `plc_parser.PLCDebugParser`, `plc_tab_parser.PLCTabParser`, and `csv_signal_parser.CSVSignalParser` register themselves on import. There is no default parser shipped; auto-detection depends entirely on the registered parsers’ `can_parse` implementations (or an explicit parser name).
 
 ### 4.2 `GenericTemplateLogParser` Base Class
 All concrete parsers inherit from this class, which provides:
@@ -164,197 +164,100 @@ sys.exit(app.exec())
 ```
 QMainWindow
 └── QWidget (central)
-    └── QVBoxLayout
+    └── QVBoxLayout (margins 18, spacing 16)
         ├── FileUploadWidget
         ├── QProgressBar (hidden until parsing)
-        ├── QSplitter (horizontal)
-        │   ├── Left Panel (QVBoxLayout)
-        │   │   ├── StatsWidget (within a holder container for easy recreation)
-        │   │   └── SignalFilterWidget
-        │   └── Right Panel QSplitter (vertical)
-        │       ├── Waveform Container (QVBoxLayout)
-        │       │   ├── ZoomControls
-        │       │   ├── WaveformView (QGraphicsView)
-        │       │   ├── PanControls
-        │       │   └── TimeRangeSelector
-        │       └── DataTableWidget
-        └── Bottom Action Bar (Load New File button aligned left)
+        ├── Stats container (QWidget → QVBoxLayout → StatsWidget)
+        ├── Buttons container (QGridLayout, 2×2)
+        │   ├── "Open Timing Diagram"
+        │   ├── "Open Log Table"
+        │   ├── "Open Map Viewer"
+        │   └── "Plot Signal Intervals"
+        └── Stretch
 ```
 
+The timing diagram, log table, map viewer, and interval dialog open as separate top-level windows; the main window collects data and launches them.
+
 ### 7.2 Key Attributes
-- Current file list, merged `ParsedLog`, mapping of `signal_key -> SignalData`, and the list of visible signals.
-- Shared `ViewportState` instance coordinating zoom/pan among waveform, controls, and selectors.
-- Parser thread instance reference for lifecycle management.
-- Stats widget holder references (`_stats_holder`, `_stats_holder_layout`) to survive deletion/recreation when the widget is destroyed.
+- `_current_files`, `_file_results`, `_merged_parsed_log` — track the active parse job and merged result.
+- `_signal_data_list`, `_signal_data_map` — cache processed signals for reuse across secondary windows.
+- `_parser_thread` — background worker handling parsing lifecycle.
+- `_timing_window`, `_table_window`, `_map_viewer_window` — references that allow live updates and focus/raise behaviour.
+- `stats_widget` — displays aggregated metrics and is recreated only when needed.
 
 ### 7.3 Event Flow
-1. **File selection** (`_on_files_selected`):
-   - Validates paths, warns about missing files, deduplicates, stores `_current_files`, and calls `_parse_files`.
-2. **Parsing kickoff** (`_parse_files`):
-   - Blocks parallel parsing if a job is in progress.
-   - Resets UI: clears previous results, disables upload widget, shows progress bar, resets waveform/table/filter.
-   - Disconnects previous viewport signals to avoid duplicate slots.
-   - Starts `ParserThread`, connecting to `finished`, `progress`, `error`.
-3. **Parsing progress**:
-   - Updates progress bar label with `Parsing i/n file(s) – filename`.
-4. **Parsing completion** (`_on_parse_finished`):
-   - Hides progress bar, re-enables upload widget, stores per-file results.
-   - Populates waveform view, data table, and filter with processed signal data.
-   - Configures `ViewportState`:
-     - `set_full_time_range(start, end)`
-     - Initial zoom to the first 10 seconds (clamped to end).
-     - Connects `time_range_changed` and `zoom_level_changed` to UI controls.
-   - Updates status text and displays warnings for partial failures.
-   - Shows “Load New File” button.
-5. **Error states** (`_on_parse_error`, parse failure path):
-   - Resets UI, shows a QMessageBox with the failure reason, ensures thread is cleaned up.
-6. **Load New File**:
-   - Resets all UI elements and disables navigation controls.
-7. **Viewport updates**:
-   - Zoom buttons, slider, mouse wheel, and `TimeRangeSelector` feed the shared `ViewportState`.
-   - `time_range_changed` updates the waveform scene (`set_time_range`), `TimeRangeSelector`, and `PanControls` scroll bar.
-   - `PanControls` jump-to-time and scrollbar use `ViewportState.jump_to_time` / `set_time_range`.
-8. **Signal filtering**:
-   - `SignalFilterWidget.visible_signals_changed` triggers waveform visibility updates and table filtering.
-9. **Interval plotting**:
-   - When the filter widget emits `plot_intervals_requested`, the window opens `SignalIntervalDialog` for the selected signal.
+1. **File selection** (`_on_files_selected`): normalises paths, warns for missing files, deduplicates, hands off to `_parse_files`.
+2. **Parsing kickoff** (`_parse_files`): aborts if another job is running, clears previous results, disables uploads, shows progress, clears secondary windows, and spins up `ParserThread`.
+3. **Progress** (`_on_parse_progress`): converts the progress bar to determinate mode and shows `Parsing i/n file(s) - filename`.
+4. **Completion** (`_on_parse_finished`):
+   - Merges results, updates stats, and builds `SignalData`.
+   - Refreshes timing diagram, log table, and map viewer windows if already open.
+   - Updates upload widget status (e.g., `✓ Loaded 3 of 3 file(s) with 2 error(s)`), re-enables uploads, and toggles navigation buttons based on whether data exists.
+   - Emits warnings for partial failures or high error counts.
+5. **Errors** (`_on_parse_error`): hides progress, re-enables uploads, shows a critical dialog, resets status text, and disposes the worker thread.
+6. **Navigation buttons**: `Timing Diagram`, `Log Table`, and `Plot Signal Intervals` remain disabled until successful parsing; the map viewer can always open (it will prompt for map files if needed).
 
 ### 7.4 Wayland Handling
-`resizeEvent` logs geometry details when running on Wayland for debugging. `_show_window` sets minimum size (960×720) and clamps the maximum to 10–12% margins within the available screen geometry.
+`_show_window` (defined in `main.py`) applies Wayland-safe sizing by setting relaxed maximums after the first event loop tick. `MainWindow.resizeEvent` logs geometry when running under Wayland to help debug compositor quirks.
 
 ---
 
 ## 8. UI Component Catalogue
 
 ### 8.1 FileUploadWidget
-- Composition:
-  - `QFrame` drop zone with dashed border and emoji label.
-  - “Browse for Files” button.
-- Features:
-  - Accepts drag-and-drop of files (`QDragEnterEvent`, `QDropEvent`).
-  - Filters URLs to valid files only.
-  - Emits `files_selected` (list of absolute paths).
-  - `set_status(text)` changes the central label (used for feedback: e.g., “Parsing…”).
+- Drop-zone `QFrame` with emoji label plus a “Browse for Files” button.
+- Accepts drag-and-drop, filters duplicates, emits `files_selected(list[str])`, and exposes `set_status(text)` for progress/success/error feedback.
 
 ### 8.2 StatsWidget
-- Displays aggregated statistics:
-  - Entry count, unique devices, unique signals, time range, error count.
-  - If errors exist, shows a yellow `QTextEdit` with per-error details (`[filename] Line N: reason`).
-- Styling emphasises success vs. failure (green vs. red fonts).
-- Public methods: `update_stats(ParseResult)` and `clear()`.
-- Needs to survive recreation, hence MainWindow stores the surrounding holder widget and reinstantiates the widget to avoid stale references when Qt destroys it.
+- Displays entry/device/signal counts, overall time range, and error totals.
+- Shows detailed error lines in a yellow panel when parse errors occur.
+- Methods: `update_stats(ParseResult)` and `clear()`.
 
-### 8.3 DataTableWidget
-- Wrapper around a custom `QAbstractTableModel` (`LogDataModel`) and a `CopyPasteTableView`.
-- Columns: Device ID, Signal Name, Timestamp (formatted `%H:%M:%S`), Value, Type.
-- Row count label shows totals and filtered counts (e.g., “125 of 450 entries”).
-- `filter_signals(signal_keys)` retains only entries with matching `device::signal` keys. Empty selection → “0 of N entries”.
-- `CopyPasteTableView` enables Ctrl+C copies, tab-separated rows, and a context menu. Paste functionality is intentionally disabled.
+### 8.3 TimingDiagramWindow
+- Split view (`QSplitter`) hosting `SignalFilterWidget` (left) and waveform stack (right).
+- Instantiates `ViewportState`, `ZoomControls`, `WaveformView`, `PanControls`, and `TimeRangeSelector`.
+- `set_data(parsed_log, signal_data)` loads waveforms, populates filters, enables controls, and initialises a 10-second starting window (clamped to log length).
+- Exposes `viewport_state` for cross-window coordination (map viewer syncs to its `time_range_changed` signal).
 
 ### 8.4 SignalFilterWidget
-- Purpose: Let users search, filter, and select which signals appear in the waveform and table.
-- State:
-  - `SignalInfo` objects (immutable dataclass) derived from `SignalData`.
-  - Search string with debounce (200 ms).
-  - Type filters (Boolean/String/Integer via checkboxes).
-  - Toggle for “Show only signals with changes”.
-  - Preset management (save/load via `QComboBox` + `QInputDialog`).
-  - Device tree: top-level items per device, child items per signal with tri-state selection.
-  - Selected signals tracked as a set of keys; `visible_signals_changed` emits only those both filtered in and selected.
-- Buttons:
-  - Select All / Deselect All (affect current filtered subset).
-  - Clear Filters resets to default (all signals selected, no search, all types visible).
-  - Plot Change Intervals (enabled only when exactly one signal is selected; emits `plot_intervals_requested(key)`).
-- Tree-building occurs lazily on first `showEvent` to avoid expensive UI work while hidden.
+- Debounced search (with `/regex` support), Boolean/String/Integer toggles, “show only signals with changes”, preset save/load, Select All / Deselect All buttons, and tri-state device tree.
+- Status label reports visible counts; the filter is disabled until signals are loaded.
+- Emits `visible_signals_changed` and `plot_intervals_requested`.
 
 ### 8.5 WaveformView & Scene
+- `WaveformView` (QGraphicsView) enables antialiasing, pins the time axis, and maps wheel gestures to zoom commands (forwarded as `wheel_zoom` to the viewport).
+- `WaveformScene` tracks signal rows, label column, time axis, grid lines, and transition markers.
+  - Layout constants: 180 px label width, 60 px per signal row, 30 px time axis height.
+  - Supports `set_data`, `set_visible_signals`, `set_time_range`, and `refresh_layout`.
+- Renderers: `BooleanRenderer` (square waves) and `StateRenderer` (labelled spans). Both use `BaseRenderer.clip_states` to trim data to the visible window.
+- `TransitionMarkerItem` and `GridLinesItem` provide markers and adaptive grid spacing.
 
-**WaveformView (QGraphicsView)**
-- Holds a `WaveformScene`. Enables antialiasing and smooth transforms.
-- Disables scrollbars when possible and pins the transformation anchor under the mouse.
-- Overrides:
-  - `resizeEvent` to update scene width and re-pin the time axis.
-  - `scrollContentsBy` to keep the time axis fixed while scrolling vertically.
-  - `wheelEvent` to map Ctrl+wheel to zoom (emits `wheel_zoom` delta).
-- `set_data(parsed_log, signal_data_list)` resets the view, ensures the time axis is visible, and positions the scene at the top-left.
+### 8.6 LogTableWindow & DataTableWidget
+- `LogTableWindow` reuses `SignalFilterWidget` and forwards filter changes to the table.
+- `DataTableWidget` combines `CopyPasteTableView` with `LogDataModel` columns (Device, Signal, Timestamp `%H:%M:%S`, Value, Type) and a row-count label (e.g., “125 of 450 entries”).
+- `filter_signals` matches `device::signal` keys and updates the count label (`0 of N` when nothing is selected).
 
-**WaveformScene (QGraphicsScene)**
-- Dimensions: `LABEL_WIDTH` (180 px) for labels, `SIGNAL_HEIGHT` (60 px per track), `TIME_AXIS_HEIGHT` (30 px).
-- Maintains:
-  - `signal_data_map` (`key -> SignalData`).
-  - `visible_signal_names` (ordered list).
-  - Graphics items:
-    - `GridLinesItem` (dotted vertical lines).
-    - `TimeAxisItem` (top row with ticks and labels).
-    - For each signal: a `SignalRowItem` containing a `SignalLabelItem` and a `SignalItem`.
-- `set_visible_signals` rebuilds the scene using only selected keys, preserving order across rebuilds by intersecting with `all_signal_names`.
-- `update_width` adjusts scene rects, grid lines, time axis width, and each signal’s waveform width.
-- `set_time_range(start, end)` forwards the new visible span to the time axis, grid, and every `SignalItem`.
-- Drag-and-drop: `SignalRowItem` is `ItemIsMovable`. On drop, the scene reorders `visible_signal_names` according to item Y positions, allowing users to re-stack waveform rows.
+### 8.7 IntegratedMapViewer
+- Wraps `tools/map_viewer` components (`MapParser`, `MapRenderer`, `UnitStateModel`, `MediaControls`).
+- Loads XML maps, YAML mapping/color policies, and links `SignalData` to unit IDs.
+- Playback controls allow play/pause, speed adjustments, seeks, and manual time input. `update_time_position` lets the map follow the waveform’s visible start time.
 
-**Rendering details**
-- `SignalLabelItem` paints a light-grey panel with device name (bold) and signal name.
-- `SignalItem` renders waveform content:
-  - Chooses a renderer based on `SignalType`.
-  - Ensures clipping within its bounding rect.
-  - Recreates QPainterPath objects when the time range or width changes.
-  - Generates `TransitionMarkerItem` vertical lines where values change; tooltips show timestamp and value transition, clicking toggles highlight.
-- Renderers:
-  - `BooleanRenderer`: Draws square waves with high/low states, fills high regions with translucent green.
-  - `StateRenderer`: Draws labeled boxes spanning each state (strings, integers).
-  - Both rely on `BaseRenderer` helpers for time-to-x conversion, pen/brush creation, and state clipping at the viewport boundaries.
+### 8.8 ViewportState
+- QObject that centralises the full time range, visible window, zoom level, and visible duration.
+- Signals: `time_range_changed(start, end)` and `duration_changed(seconds)` keep controls and views synchronised.
+- Methods include `set_full_time_range`, `set_time_range`, `set_visible_duration`, `zoom_in/out`, `reset_zoom`, `pan`, and `jump_to_time`. Duration clamps prevent extreme zoom.
 
-### 8.6 ZoomControls
-- Widgets: “−” button, slider (logarithmic scale 1× – 1000×), “+” button, clickable label showing the current zoom (allows manual entry), and “Reset” button.
-- Signals: `zoom_in_clicked`, `zoom_out_clicked`, `reset_zoom_clicked`, `zoom_level_changed`.
-- `set_zoom_level(zoom)` updates slider position and button enabled state; uses logarithmic mapping to convert zoom levels to slider ticks.
-
-### 8.7 PanControls
-- Components: left/right arrow buttons, horizontal scrollbar (0–1000), time input (`HH:MM[:SS]`), “Go” button.
-- Signals:
-  - `pan_left_clicked`, `pan_right_clicked`.
-  - `jump_to_time(datetime)` emitted when the user enters a valid time.
-  - `scroll_changed(float_fraction)`.
-- `set_scroll_position(position, visible_fraction)` adjusts scrollbar value and page step (so the thumb size roughly matches the visible percentage of the timeline).
-- `set_time_range(start, end)` stores bounds and updates tooltips.
-
-### 8.8 TimeRangeSelector
-- Custom QWidget showing the full log time span as a bar with a highlighted sub-range.
-- Interaction:
-  - Drag left/right handles to adjust start/end.
-  - Drag within the highlighted area to pan the window.
-- Emits `time_range_changed(start_datetime, end_datetime)` whenever selection changes.
-- Maintains consistent constraints (cannot invert start/end, clamps to overall range).
-
-### 8.9 ViewportState
-- QObject managing the canonical visible time window and zoom level.
-- Holds:
-  - `_full_start`, `_full_end`.
-  - `_visible_start`, `_visible_end`.
-  - `_zoom_level` (float).
-- Signals: `time_range_changed(start, end)`, `zoom_level_changed(level)`.
-- Methods:
-  - `set_full_time_range(start, end)` resets zoom to 1×.
-  - `set_time_range(start, end)` clamps to full range and emits both signals.
-  - `zoom_in/out(factor)`, `set_zoom_level(zoom)`, `reset_zoom()`.
-  - `pan(delta_seconds)` shifts the window.
-  - `jump_to_time(target)` centers the view around the target.
-- Ensures zoom boundaries between `min_zoom = 1.0` and `max_zoom = 1000.0`.
-
-### 8.10 SignalIntervalDialog
-- Opens when a single signal is selected for interval plotting.
-- Steps:
-  1. Converts consecutive `SignalState` pairs into `IntervalPoint` entries.
-  2. Displays an `IntervalPlotWidget` bar chart (duration vs. change index).
-  3. Shows a table listing change index, from/to values, timestamp, and duration (seconds).
-- Provides user feedback if the signal lacks transitions (handled in MainWindow before instantiation).
+### 8.9 SignalIntervalDialog
+- Generates duration analytics for a single signal’s transitions.
+- Renders a bar chart (`IntervalPlotWidget`) and table (change index, timestamps, value transitions, durations).
+- Detects when a signal lacks transitions and responds with a friendly info dialog instead of an empty plot.
 
 ---
 
 ## 9. Background Processing & Thread Safety
 
 - Parsing happens on `ParserThread`; the GUI stays responsive.
-- Large waveform preprocessing may run in a subprocess pool. Because PyQt GUI elements cannot be touched off the main thread, all signals emitted by `ParserThread` deliver plain Python objects (`ParseResult`, dicts, lists), and the UI rebuilds the scene on the main thread.
+- Large waveform preprocessing may run in a subprocess pool. Because Qt GUI elements (PySide6) cannot be touched off the main thread, all signals emitted by `ParserThread` deliver plain Python objects (`ParseResult`, dicts, lists), and the UI rebuilds the scene on the main thread.
 - String interning (`sys.intern`) in the parser reduces memory churn for repeated device/signal names.
 - Batch size constants and `LINES_PER_BATCH` can be tuned depending on log size and hardware.
 - The process pool is a singleton per class (`ParserThread._executor`) to avoid repeated initialization cost.
@@ -401,14 +304,14 @@ QMainWindow
 ## 12. Testing Strategy
 
 - Tests rely on `pytest` and `pytest-qt`.
-- Existing suite is light (notably `tests/test_viewport_state.py` and an older parser test referencing a deprecated `DefaultParser`). Reimplementation can modernise the tests to align with the two active parsers.
+- Existing coverage is light: `plc_visualizer/tests/test_viewport_state.py` exercises zoom/pan math, while `scripts/test_chunked_loading.py` and `test_chunked_loading_quick.py` act as executable smoke tests for streaming. Additional parser/UI tests are future work.
 - Suggested coverage areas:
   - Parser regexes handle both valid and malformed lines.
   - Type inference and timestamp parsing.
   - Merge utilities combine logs accurately.
   - Viewport state transitions (zoom, pan, jump, clamping).
   - Signal processing yields correct state durations.
-  - UI-level tests (with pytest-qt) can verify signal emissions when filters are toggled.
+  - UI-level tests (with pytest-qt) verify filter interactions, window launches, and map viewer integration.
 
 ---
 
@@ -454,7 +357,7 @@ Follow this checklist to recreate the project from scratch:
 4. **Implement parser infrastructure**
    - `parsers/base_parser.py` with `BaseParser` + `GenericTemplateLogParser`.
    - `parsers/parser_registry.py` (singleton).
-   - Concrete parsers with regex patterns (`plc_parser.py`, `plc_tab_parser.py`).
+   - Concrete parsers with regex/CSV patterns (`plc_parser.py`, `plc_tab_parser.py`, `csv_signal_parser.py`).
 5. **Create signal processing threads**
    - `ParserThread` inside `ui/main_window.py`, including process pool offload.
 6. **Construct UI components**
@@ -483,4 +386,4 @@ Follow this checklist to recreate the project from scratch:
 
 ---
 
-By following this guide, a developer can reimplement the PLC Log Visualizer’s capabilities—including parsing, real-time waveform rendering, interactive filtering, and analytics—without direct access to the original source. The architecture emphasises modularity: parsers are pluggable, signal processing is reusable outside the GUI, and each UI component exposes clear responsibilities with PyQt signals/slots for integration.
+By following this guide, a developer can reimplement the PLC Log Visualizer’s capabilities—including parsing, real-time waveform rendering, interactive filtering, and analytics—without direct access to the original source. The architecture emphasises modularity: parsers are pluggable, signal processing is reusable outside the GUI, and each UI component exposes clear responsibilities with Qt (PySide6) signals/slots for integration.

@@ -8,10 +8,10 @@ Core Python packages live under `plc_visualizer/`. Domain models are in `plc_vis
 
 ## Build, Test, and Development Commands
 
-- `python -m venv .venv && source .venv/bin/activate`: create and activate a local virtual environment.
-- `pip install -r requirements.txt` (or `uv pip sync`): install runtime and test dependencies.
-- `python main.py`: launch the Qt visualizer with the default sample dataset to validate UI flows.
-- `pytest --maxfail=1 --disable-warnings`: run the test suite quickly and halt on the first failure.
+- `uv sync`: install dependencies declared in `pyproject.toml`/`uv.lock`.
+- `uv run python python_plc_visualizer/main.py`: launch the main GUI (Wayland-safe sizing is handled in code).
+- `uv run pytest`: execute the automated test suite; add `-k` filters when iterating locally.
+- `uv run python python_plc_visualizer/tools/map_viewer/playback_demo.py`: exercise the standalone map viewer with generated fixtures.
 
 ## Coding Style & Naming Conventions
 
@@ -19,7 +19,7 @@ Follow PEP 8 with 4-space indentation, explicit imports, and `snake_case` for mo
 
 ## Testing Guidelines
 
-Author Pytest modules as `test_<feature>.py` within `plc_visualizer/tests/`. Exercise log parsing edge cases using fixtures drawn from `test_data/`. UI additions should include `qtbot`-driven tests to demonstrate the user flow. Always run `pytest --maxfail=1 --disable-warnings` before opening a pull request; add targeted `-k` filters when iterating locally.
+Author Pytest modules as `test_<feature>.py` within `plc_visualizer/tests/`. Exercise log parsing edge cases using fixtures drawn from `test_data/`. UI additions should include `pytest-qt` (`qtbot`) coverage for the relevant widgets/windows. Run `uv run pytest --maxfail=1 --disable-warnings` before opening a pull request and add targeted `-k` filters when iterating locally. For streaming stress tests, `uv run python python_plc_visualizer/scripts/test_chunked_loading.py` provides a quick manual check.
 
 ## Commit & Pull Request Guidelines
 

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from PySide6.QtWidgets import QMainWindow, QDockWidget, QWidget, QMessageBox, QFileDialog
 from PySide6.QtCore import Qt, QTimer
@@ -39,6 +39,7 @@ class IntegratedMapViewer(QMainWindow):
         self._signal_data_list: List[SignalData] = signal_data_list or []
         self._signal_data_map: Dict[str, SignalData] = {}
         self._current_time: Optional[datetime] = None
+        self._available_dates: List[date] = []
 
         # Media player state
         self._is_playing = False
@@ -182,6 +183,8 @@ class IntegratedMapViewer(QMainWindow):
         self.media_controls.cmb_speed.currentTextChanged.connect(self._on_speed_changed)
         self.media_controls.media_slider.sliderMoved.connect(self._on_slider_moved)
         self.media_controls.txt_time.returnPressed.connect(self._on_time_input)
+        self.media_controls.cmb_date.currentIndexChanged.connect(self._on_date_changed)
+        self.media_controls.cmb_date.setEnabled(False)
 
     def set_signal_data(self, signal_data_list: List[SignalData]):
         """Update the signal data from the main window.
@@ -212,6 +215,7 @@ class IntegratedMapViewer(QMainWindow):
             return
 
         self._current_time = current_time
+        self._sync_selected_date()
 
         # Find the signal values at this time and update the state model
         for key, signal_data in self._signal_data_map.items():
@@ -261,6 +265,8 @@ class IntegratedMapViewer(QMainWindow):
         if not self._signal_data_list:
             self._start_time = None
             self._end_time = None
+            self._available_dates = []
+            self._populate_date_options()
             return
 
         # Find min and max times from all signals
@@ -272,11 +278,13 @@ class IntegratedMapViewer(QMainWindow):
                 for state in signal.states:
                     if min_time is None or state.start_time < min_time:
                         min_time = state.start_time
-                    if max_time is None or state.start_time > max_time:
-                        max_time = state.start_time
+                    if max_time is None or state.end_time > max_time:
+                        max_time = state.end_time
 
         self._start_time = min_time
         self._end_time = max_time
+        self._available_dates = self._build_available_dates(self._start_time, self._end_time)
+        self._populate_date_options()
 
         # Initialize current time to start
         if self._start_time:
@@ -285,7 +293,7 @@ class IntegratedMapViewer(QMainWindow):
             self._update_media_controls()
             # Update placeholder to show actual timestamp format
             self.media_controls.txt_time.setPlaceholderText(
-                f"e.g., {self._start_time.strftime('%Y-%m-%d %H:%M:%S')}"
+                f"e.g., {self._start_time.strftime('%H:%M:%S')}"
             )
 
     def _update_media_controls(self):
@@ -304,6 +312,7 @@ class IntegratedMapViewer(QMainWindow):
             self.media_controls.lbl_current_time.setText(
                 f"{self._format_datetime(self._current_time)} / {self._format_datetime(self._end_time)}"
             )
+            self._sync_selected_date()
 
     def _format_time(self, seconds: float) -> str:
         """Format seconds as HH:MM:SS.mmm."""
@@ -418,30 +427,19 @@ class IntegratedMapViewer(QMainWindow):
         if not self._start_time or not self._end_time:
             return
 
+        selected_date = self.media_controls.cmb_date.currentData()
+        if selected_date is None:
+            QMessageBox.warning(
+                self,
+                "Date Required",
+                "Select a date before entering a time.",
+            )
+            return
+
         time_text = self.media_controls.txt_time.text().strip()
         try:
-            # Try to parse as full datetime first (YYYY-MM-DD HH:MM:SS or YYYY-MM-DD HH:MM:SS.mmm)
-            target_time = None
-            if ' ' in time_text:
-                try:
-                    if '.' in time_text:
-                        target_time = datetime.strptime(time_text, "%Y-%m-%d %H:%M:%S.%f")
-                    else:
-                        target_time = datetime.strptime(time_text, "%Y-%m-%d %H:%M:%S")
-                except ValueError:
-                    pass
-
-            # If not a full datetime, parse as relative time HH:MM:SS
-            if target_time is None:
-                parts = time_text.split(':')
-                if len(parts) == 3:
-                    hours = int(parts[0])
-                    minutes = int(parts[1])
-                    seconds = float(parts[2])
-                    total_seconds = hours * 3600 + minutes * 60 + seconds
-                    target_time = self._start_time + timedelta(seconds=total_seconds)
-                else:
-                    raise ValueError("Invalid format")
+            time_obj = self._parse_time_only(time_text)
+            target_time = datetime.combine(selected_date, time_obj)
 
             # Check if within range
             if self._start_time <= target_time <= self._end_time:
@@ -459,11 +457,10 @@ class IntegratedMapViewer(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Invalid Time",
-                "Please enter time in one of these formats:\n"
-                "- YYYY-MM-DD HH:MM:SS.mmm (absolute)\n"
-                "- YYYY-MM-DD HH:MM:SS (absolute)\n"
-                "- HH:MM:SS.mmm (relative from start)\n"
-                "- HH:MM:SS (relative from start)"
+                "Enter time in one of these formats:\n"
+                "- HH:MM\n"
+                "- HH:MM:SS\n"
+                "- HH:MM:SS.mmm"
             )
 
     def load_map_file(self):
@@ -490,3 +487,59 @@ class IntegratedMapViewer(QMainWindow):
                     return
 
             self._load_map(xml_path, str(yaml_path))
+
+    def _build_available_dates(self, start: Optional[datetime], end: Optional[datetime]) -> List[date]:
+        if not start or not end:
+            return []
+        days: List[date] = []
+        cursor = start.date()
+        last = end.date()
+        while cursor <= last:
+            days.append(cursor)
+            cursor += timedelta(days=1)
+        return days
+
+    def _populate_date_options(self):
+        combo = self.media_controls.cmb_date
+        combo.blockSignals(True)
+        combo.clear()
+        for day in self._available_dates:
+            combo.addItem(day.strftime("%Y-%m-%d"), day)
+        combo.setEnabled(bool(self._available_dates))
+        if self._available_dates:
+            combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+        if not self._available_dates:
+            combo.setToolTip("No data loaded")
+            self.media_controls.txt_time.setEnabled(False)
+        else:
+            combo.setToolTip("Select the date to preview")
+            self.media_controls.txt_time.setEnabled(True)
+
+    def _sync_selected_date(self):
+        if not self._current_time:
+            return
+        target_date = self._current_time.date()
+        combo = self.media_controls.cmb_date
+        for idx in range(combo.count()):
+            if combo.itemData(idx) == target_date:
+                combo.blockSignals(True)
+                if combo.currentIndex() != idx:
+                    combo.setCurrentIndex(idx)
+                combo.blockSignals(False)
+                break
+
+    def _on_date_changed(self, _index: int):
+        # No immediate jump; user can enter a time and press Enter.
+        pass
+
+    @staticmethod
+    def _parse_time_only(time_text: str):
+        formats = ("%H:%M:%S.%f", "%H:%M:%S", "%H:%M")
+        for fmt in formats:
+            try:
+                parsed = datetime.strptime(time_text, fmt)
+                return parsed.time()
+            except ValueError:
+                continue
+        raise ValueError("invalid time format")
