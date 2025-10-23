@@ -19,6 +19,9 @@ def load_mapping_and_policy(yaml_path: str) -> tuple[DeviceUnitMap, ColorPolicy]
             color=r.get("color", "#D3D3D3"),
             unit_id=r.get("unit_id"),
             priority=int(r.get("priority", 0)),
+            text=r.get("text"),
+            text_color=r.get("text_color"),
+            bg_color=r.get("bg_color"),
         )
         for r in rules_cfg
         if r.get("signal")

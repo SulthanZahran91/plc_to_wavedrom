@@ -27,7 +27,8 @@ class MapRenderer(QGraphicsView):
     """
     Standalone renderer. Public API:
       - set_objects(objects: dict) -> None
-      - update_rect_color_by_unit(unit_id: str, color: QColor) -> int
+      - update_rect_color_by_unit(unit_id: str, color: QColor, text_overlay_info: Optional[tuple]) -> int
+        where text_overlay_info is (character, text_color) or None
     """
     def __init__(self):
         super().__init__()
@@ -64,12 +65,15 @@ class MapRenderer(QGraphicsView):
 
         # index: UnitId -> [QGraphicsItem, ...]
         self._items_by_unit: Dict[str, list] = {}
+        # index: UnitId -> text overlay item (if any)
+        self._text_overlays_by_unit: Dict[str, Any] = {}
 
     # ---------- Public API ----------
     def set_objects(self, objects: Dict[str, Dict[str, Any]]) -> None:
         """Render parsed objects into the scene."""
         self.scene.clear()
         self._items_by_unit.clear()
+        self._text_overlays_by_unit.clear()
 
         for name, data in objects.items():
             size_str = data.get("Size")
@@ -139,18 +143,33 @@ class MapRenderer(QGraphicsView):
 
         self.fitInView(self.scene.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
-    def update_rect_color_by_unit(self, unit_id: str, color: QColor) -> int:
+    def update_rect_color_by_unit(self, unit_id: str, color: QColor,
+                                   text_overlay_info: Optional[tuple[str, QColor]] = None) -> int:
         """
-        Update the brush of rectangle(s) sharing a UnitId.
+        Update the brush of rectangle(s) sharing a UnitId and manage text overlays.
+        text_overlay_info is (character, text_color) or None.
         Returns the number of items changed.
         """
         items = self._items_by_unit.get(unit_id) or []
         changed = 0
+        rect_items = []
+
         for it in items:
             data = it.data(0) or {}
             if data.get('render_type') == 'rectangle':
                 it.setBrush(QBrush(color))
+                rect_items.append(it)
                 changed += 1
+
+        # Handle text overlay
+        if text_overlay_info and rect_items:
+            character, text_color = text_overlay_info
+            # Use the first rectangle for overlay (typically only one per unit_id)
+            self._add_or_update_text_overlay(unit_id, rect_items[0], character, text_color)
+        else:
+            # Remove text overlay if exists
+            self._remove_text_overlay(unit_id)
+
         return changed
 
     # ---------- Internals ----------
@@ -158,6 +177,52 @@ class MapRenderer(QGraphicsView):
         if not unit_id:
             return
         self._items_by_unit.setdefault(unit_id, []).append(item)
+
+    def _add_or_update_text_overlay(self, unit_id: str, rect_item, character: str, text_color: QColor):
+        """Create or update a text overlay for a rectangle item."""
+        # Get rectangle bounds
+        rect = rect_item.rect()
+        rect_x = rect.x()
+        rect_y = rect.y()
+        rect_width = rect.width()
+        rect_height = rect.height()
+
+        # Remove existing overlay if any
+        self._remove_text_overlay(unit_id)
+
+        # Create text item
+        text_item = self.scene.addText(character)
+        text_item.setDefaultTextColor(text_color)
+
+        # Scale font to fit rectangle (use 80% of smaller dimension)
+        target_size = min(rect_width, rect_height) * 0.8
+        font = QFont("Arial", 12)  # Start with a base size
+        font.setBold(True)
+        text_item.setFont(font)
+
+        # Measure and scale
+        text_bounds = text_item.boundingRect()
+        scale_factor = target_size / max(text_bounds.width(), text_bounds.height())
+        text_item.setScale(scale_factor)
+
+        # Center the text in the rectangle
+        scaled_bounds = text_item.boundingRect()
+        center_x = rect_x + (rect_width - scaled_bounds.width() * scale_factor) / 2
+        center_y = rect_y + (rect_height - scaled_bounds.height() * scale_factor) / 2
+        text_item.setPos(center_x, center_y)
+
+        # Set Z-index higher than rectangles
+        text_item.setZValue(rect_item.zValue() + 1)
+
+        # Store reference
+        self._text_overlays_by_unit[unit_id] = text_item
+
+    def _remove_text_overlay(self, unit_id: str):
+        """Remove text overlay for a unit if it exists."""
+        if unit_id in self._text_overlays_by_unit:
+            text_item = self._text_overlays_by_unit[unit_id]
+            self.scene.removeItem(text_item)
+            del self._text_overlays_by_unit[unit_id]
 
     def _create_arrow(self, x, y, width, height, data):
         line_thick = int(data.get('LineThick', 1) or 1)

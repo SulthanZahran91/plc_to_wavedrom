@@ -19,6 +19,11 @@ device_to_unit:
 # Color rules based on signal values
 # Each rule specifies: signal name, operator, value, resulting color, and priority
 # Higher priority rules are evaluated first
+#
+# New text overlay feature:
+#   - text: single character to display (e.g., 'X' to cross out)
+#   - text_color: color for the text overlay
+#   - bg_color: background color (if not specified, uses 'color')
 
 rules:
   # Status-based colors (highest priority)
@@ -28,16 +33,22 @@ rules:
     color: "#00C853"  # Green - running
     priority: 100
 
+  # Error status with red X overlay
   - signal: "Status"
     op: "=="
     value: "Error"
-    color: "#D50000"  # Red - error
+    bg_color: "#FFCCCC"  # Light red background
+    text: "X"
+    text_color: "#D50000"  # Dark red X to cross out
     priority: 100
 
+  # Stopped status with pause symbol
   - signal: "Status"
     op: "=="
     value: "Stopped"
-    color: "#FFD600"  # Yellow - stopped
+    bg_color: "#FFF9C4"  # Light yellow background
+    text: "‖"  # Pause symbol
+    text_color: "#FF6F00"  # Dark orange
     priority: 100
 
   - signal: "Status"
