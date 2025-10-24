@@ -1,0 +1,321 @@
+# Signal Validation Rules
+# PLC Log Analyzer - Pattern-based validation for signal sequences
+#
+# This file defines validation rules that check if device signals follow
+# expected patterns and sequences. Violations are reported with timestamps
+# for log analysis.
+
+# ==============================================================================
+# GLOBAL SETTINGS
+# ==============================================================================
+validation_settings:
+  enabled: true
+  auto_validate_on_load: false  # User triggers validation manually
+  max_violations_per_device: 100
+  max_violations_per_rule: 500
+
+# ==============================================================================
+# VALIDATION RULES
+# ==============================================================================
+validation_rules:
+
+  # ----------------------------------------------------------------------------
+  # EXAMPLE 1: Carrier Detection Handshake (Simple Sequential Pattern)
+  # ----------------------------------------------------------------------------
+  - device_pattern: "B1ACNV*"  # Applies to all conveyors
+    name: "Carrier Movement Sequence"
+    description: "Validates proper carrier detection and movement sequence"
+    enabled: true
+
+    # Signals that must exist (optional - will report error if missing)
+    required_signals:
+      - "CARRIER_DETECTED"
+      - "CARRIER_ID_READ"
+      - "CARRIER_GIVEN_MOVE"
+      - "CONVEYOR_MOVE"
+
+    patterns:
+      # ------------------------------------------------------------------------
+      # Sequential Pattern: Carrier must follow proper handshake
+      # ------------------------------------------------------------------------
+      - id: "CARRIER_HANDSHAKE"
+        pattern_type: "sequence"
+        severity: "error"  # error, warning, or info
+
+        # Define the required sequence of signal changes
+        sequence:
+          # Step 1: Carrier arrives and is detected
+          - step: 1
+            signal: "CARRIER_DETECTED"
+            operator: "=="
+            value: true
+            description: "Carrier arrives at sensor"
+            timeout: null  # No timeout (this starts the sequence)
+
+          # Step 2: Carrier ID must be read within 2 seconds
+          - step: 2
+            signal: "CARRIER_ID_READ"
+            operator: "=="
+            value: "SET"
+            description: "Read carrier barcode/RFID"
+            timeout: 2.0  # Must happen within 2 seconds of step 1
+
+          # Step 3: System grants permission to move
+          - step: 3
+            signal: "CARRIER_GIVEN_MOVE"
+            operator: "=="
+            value: true
+            description: "Control system authorizes movement"
+            timeout: 1.0  # Must happen within 1 second of step 2
+
+          # Step 4: Conveyor starts moving
+          - step: 4
+            signal: "CONVEYOR_MOVE"
+            operator: "=="
+            value: true
+            description: "Conveyor motor engages"
+            timeout: 0.5  # Must happen within 0.5 seconds of step 3
+
+          # Step 5: Carrier leaves detection zone
+          - step: 5
+            signal: "CARRIER_DETECTED"
+            operator: "=="
+            value: false
+            description: "Carrier exits sensor zone"
+            timeout: 10.0  # Should leave within 10 seconds
+
+          # Step 6: Conveyor stops
+          - step: 6
+            signal: "CONVEYOR_MOVE"
+            operator: "=="
+            value: false
+            description: "Conveyor motor disengages"
+            timeout: 2.0  # Should stop within 2 seconds
+
+        # What to do when sequence is violated
+        on_violation:
+          message: "Carrier handshake sequence violated"
+          reset_on_error: true  # Start tracking fresh after violation
+
+        # What to do when sequence completes successfully
+        on_complete:
+          message: "Carrier handshake completed successfully"
+          log_success: false  # Don't log successes (only failures)
+
+        # Behavior options
+        options:
+          allow_intermediate_changes: false  # No other signals can change during sequence
+          reset_on_timeout: true  # Reset tracking if timeout occurs
+          partial_match_severity: "warning"  # Severity if sequence starts but doesn't finish
+
+  # ----------------------------------------------------------------------------
+  # EXAMPLE 2: Multi-Signal Same-Step Pattern
+  # Demonstrates: Steps with same number can occur in any order
+  # ----------------------------------------------------------------------------
+  - device_pattern: "B1ACDV*"  # Applies to all diverters
+    name: "Diverter Initialization Sequence"
+    description: "Validates diverter initialization with parallel signals"
+    enabled: true
+
+    patterns:
+      - id: "DIVERTER_INIT"
+        pattern_type: "sequence"
+        severity: "error"
+
+        sequence:
+          # Step 1: Initialization starts
+          - step: 1
+            signal: "INIT_START"
+            operator: "=="
+            value: true
+            timeout: null
+
+          # Step 2: These three can happen in ANY order (same step number)
+          - step: 2
+            signal: "SENSOR_A_READY"
+            operator: "=="
+            value: true
+            description: "Sensor A initialized"
+            timeout: 5.0  # All step 2 signals must complete within 5s
+
+          - step: 2
+            signal: "SENSOR_B_READY"
+            operator: "=="
+            value: true
+            description: "Sensor B initialized"
+            timeout: 5.0
+
+          - step: 2
+            signal: "MOTOR_CALIBRATED"
+            operator: "=="
+            value: true
+            description: "Motor calibration complete"
+            timeout: 5.0
+
+          # Step 3: Only happens after ALL step 2 signals complete
+          - step: 3
+            signal: "INIT_COMPLETE"
+            operator: "=="
+            value: true
+            description: "Initialization finished"
+            timeout: 1.0
+
+        on_violation:
+          message: "Diverter initialization sequence violated"
+          reset_on_error: true
+
+        options:
+          allow_intermediate_changes: false
+          reset_on_timeout: true
+
+  # ----------------------------------------------------------------------------
+  # EXAMPLE 3: Port Loading with Intermediate Changes Allowed
+  # ----------------------------------------------------------------------------
+  - device_pattern: "B1ACPT*"  # Applies to all ports
+    name: "Port Loading Sequence"
+    description: "Validates port loading with flexible intermediate signals"
+    enabled: true
+
+    patterns:
+      - id: "PORT_LOADING"
+        pattern_type: "sequence"
+        severity: "error"
+
+        sequence:
+          - step: 1
+            signal: "Status"
+            operator: "=="
+            value: "Idle"
+            timeout: null
+
+          - step: 2
+            signal: "CARRIER_PRESENT"
+            operator: "=="
+            value: true
+            timeout: 30.0
+
+          - step: 3
+            signal: "LOADING_ACTIVE"
+            operator: "=="
+            value: true
+            timeout: 2.0
+
+          - step: 4
+            signal: "Status"
+            operator: "=="
+            value: "Running"
+            timeout: 1.0
+
+          - step: 5
+            signal: "LOADING_COMPLETE"
+            operator: "=="
+            value: true
+            timeout: 60.0
+
+          - step: 6
+            signal: "Status"
+            operator: "=="
+            value: "Idle"
+            timeout: 5.0
+
+        on_violation:
+          message: "Port loading sequence violated"
+          reset_on_error: true
+
+        options:
+          allow_intermediate_changes: true  # Other signals (like Speed, B) can change freely
+          reset_on_timeout: true
+          partial_match_severity: "warning"
+
+  # ----------------------------------------------------------------------------
+  # EXAMPLE 4: Using Different Operators
+  # ----------------------------------------------------------------------------
+  - device_pattern: "*"  # Applies to all devices
+    name: "Status Transition Validation"
+    description: "Demonstrates various comparison operators"
+    enabled: false  # Disabled by default (set to true to enable)
+
+    patterns:
+      - id: "STATUS_TRANSITIONS"
+        pattern_type: "sequence"
+        severity: "warning"
+
+        sequence:
+          # Greater than operator
+          - step: 1
+            signal: "Speed"
+            operator: ">"
+            value: 0.0
+            timeout: null
+
+          # In operator (value must be in list)
+          - step: 2
+            signal: "Status"
+            operator: "in"
+            value: ["Running", "Active"]  # Either value is valid
+            timeout: 2.0
+
+          # Not equal operator
+          - step: 3
+            signal: "Error_Code"
+            operator: "!="
+            value: 0
+            timeout: 10.0
+
+        on_violation:
+          message: "Status transition pattern violated"
+          reset_on_error: true
+
+        options:
+          allow_intermediate_changes: true
+
+# ==============================================================================
+# NOTES AND USAGE GUIDE
+# ==============================================================================
+#
+# PATTERN TYPES:
+#   - sequence: Ordered sequence of signal changes with timing constraints
+#
+# OPERATORS:
+#   - ==  : Equal to
+#   - !=  : Not equal to
+#   - >   : Greater than
+#   - <   : Less than
+#   - >=  : Greater than or equal
+#   - <=  : Less than or equal
+#   - in  : Value is in list
+#   - not in: Value is not in list
+#
+# SEVERITY LEVELS:
+#   - error  : Critical violations (system malfunction)
+#   - warning: Issues to review (may be acceptable)
+#   - info   : Informational (for awareness)
+#
+# SAME STEP NUMBER FEATURE:
+#   - Multiple steps with the same step number can occur in ANY ORDER
+#   - The sequence only advances to the next step number when ALL steps
+#     in the current step number are complete
+#   - Example:
+#       Step 1: Signal A = true
+#       Step 2: Signal B = true  |
+#       Step 2: Signal C = true  |-- These 3 can happen in any order
+#       Step 2: Signal D = true  |
+#       Step 3: Signal E = true  <-- Only happens after all step 2's complete
+#
+# TIMEOUT BEHAVIOR:
+#   - timeout: null   -> No timeout (often used for step 1)
+#   - timeout: 2.0    -> Step must complete within 2.0 seconds of previous step
+#   - If timeout expires, a timeout violation is reported
+#
+# INTERMEDIATE CHANGES:
+#   - allow_intermediate_changes: false
+#       -> STRICT: Only the expected signals can change
+#       -> If any other signal changes, it's reported as out-of-order
+#   - allow_intermediate_changes: true
+#       -> FLEXIBLE: Other signals can change without violating the sequence
+#       -> Only checks that the required signals occur in order
+#
+# DEVICE PATTERNS:
+#   - Supports wildcards: "B1ACNV*" matches all conveyors
+#   - Multiple rules can apply to the same device
+#   - Rules are evaluated in order
