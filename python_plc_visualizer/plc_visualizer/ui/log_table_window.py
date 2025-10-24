@@ -9,7 +9,12 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
     QVBoxLayout,
+    QHBoxLayout,
     QMessageBox,
+    QPushButton,
+    QLabel,
+    QFileDialog,
+    QFrame,
 )
 
 from plc_visualizer.models import ParsedLog
@@ -31,6 +36,7 @@ class LogTableWindow(QMainWindow):
         self._interval_request_handler: Optional[Callable[[str], None]] = None
         self._validator: Optional[SignalValidator] = None
         self._violations: dict[str, list[ValidationViolation]] = {}
+        self._loaded_rules_path: Optional[Path] = None
         self._init_ui()
 
     def set_interval_request_handler(self, handler: Callable[[str], None]):
@@ -41,6 +47,8 @@ class LogTableWindow(QMainWindow):
         """Reset the window to an empty state."""
         self._parsed_log = None
         self._signal_data_map.clear()
+        self._signal_data_list.clear()
+        self._violations.clear()
         self.signal_filter.clear()
         self.data_table.clear()
 
@@ -57,22 +65,39 @@ class LogTableWindow(QMainWindow):
         self.signal_filter.set_signals(signal_data)
         self.data_table.set_data(parsed_log)
 
-    def load_validation_rules(self, rules_path: str | Path) -> bool:
+    def load_validation_rules(self, rules_path: str | Path = None) -> bool:
         """Load validation rules from a YAML file.
 
         Args:
-            rules_path: Path to the YAML rules file.
+            rules_path: Path to the YAML rules file. If None, shows file dialog.
 
         Returns:
             True if rules loaded successfully, False otherwise.
         """
+        # Show file dialog if no path provided
+        if rules_path is None:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Load Validation Rules",
+                str(Path.cwd()),
+                "YAML Files (*.yaml *.yml);;All Files (*)"
+            )
+            if not file_path:
+                return False  # User cancelled
+            rules_path = file_path
+
         try:
             self._validator = SignalValidator(rules_path)
+            self._loaded_rules_path = Path(rules_path)
+
+            # Update UI
+            self._update_validation_ui()
+
             QMessageBox.information(
                 self,
                 "Rules Loaded",
-                f"Validation rules loaded successfully from:\n{rules_path}\n\n"
-                f"Use 'Run Validation' to check the log data."
+                f"Validation rules loaded successfully from:\n{self._loaded_rules_path.name}\n\n"
+                f"Click 'Run Validation' to check the log data."
             )
             return True
         except FileNotFoundError:
@@ -193,6 +218,10 @@ class LogTableWindow(QMainWindow):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
 
+        # Validation toolbar
+        validation_panel = self._create_validation_toolbar()
+        layout.addWidget(validation_panel)
+
         self.signal_filter = SignalFilterWidget()
         self.signal_filter.visible_signals_changed.connect(self._on_visible_signals_changed)
         self.signal_filter.plot_intervals_requested.connect(self._handle_plot_intervals)
@@ -200,6 +229,61 @@ class LogTableWindow(QMainWindow):
 
         self.data_table = DataTableWidget()
         layout.addWidget(self.data_table, stretch=1)
+
+    def _create_validation_toolbar(self) -> QFrame:
+        """Create the validation control toolbar."""
+        frame = QFrame()
+        frame.setFrameShape(QFrame.StyledPanel)
+        frame.setFrameShadow(QFrame.Raised)
+
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(10)
+
+        # Section label
+        title_label = QLabel("<b>Signal Validation:</b>")
+        layout.addWidget(title_label)
+
+        # Load Rules button
+        self.load_rules_btn = QPushButton("Load Rules...")
+        self.load_rules_btn.setToolTip("Load validation rules from a YAML file")
+        self.load_rules_btn.clicked.connect(self._on_load_rules_clicked)
+        layout.addWidget(self.load_rules_btn)
+
+        # Status label
+        self.rules_status_label = QLabel("No rules loaded")
+        self.rules_status_label.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(self.rules_status_label)
+
+        layout.addStretch()
+
+        # Run Validation button
+        self.run_validation_btn = QPushButton("Run Validation")
+        self.run_validation_btn.setToolTip("Validate log data against loaded rules")
+        self.run_validation_btn.setEnabled(False)  # Disabled until rules are loaded
+        self.run_validation_btn.clicked.connect(self._on_run_validation_clicked)
+        layout.addWidget(self.run_validation_btn)
+
+        return frame
+
+    def _on_load_rules_clicked(self):
+        """Handle Load Rules button click."""
+        self.load_validation_rules()
+
+    def _on_run_validation_clicked(self):
+        """Handle Run Validation button click."""
+        self.run_validation()
+
+    def _update_validation_ui(self):
+        """Update validation UI state based on loaded rules."""
+        if self._validator is not None and self._loaded_rules_path is not None:
+            self.rules_status_label.setText(f"Loaded: {self._loaded_rules_path.name}")
+            self.rules_status_label.setStyleSheet("color: green;")
+            self.run_validation_btn.setEnabled(True)
+        else:
+            self.rules_status_label.setText("No rules loaded")
+            self.rules_status_label.setStyleSheet("color: gray; font-style: italic;")
+            self.run_validation_btn.setEnabled(False)
 
     def _on_visible_signals_changed(self, visible_names: list[str]):
         if self._parsed_log is None:
