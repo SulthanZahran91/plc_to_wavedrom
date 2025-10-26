@@ -4,13 +4,27 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import date, datetime, timedelta
 
-from PySide6.QtWidgets import QMainWindow, QDockWidget, QWidget, QMessageBox, QFileDialog
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QDockWidget,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 from PySide6.QtCore import Qt, QTimer
 
 from plc_visualizer.utils import SignalData
 from tools.map_viewer import MapParser, MapRenderer, MediaControls
 from tools.map_viewer.state_model import UnitStateModel, SignalEvent
 from tools.map_viewer.config_loader import load_mapping_and_policy
+from ..theme import (
+    apply_primary_button_style,
+    card_panel_styles,
+    create_header_bar,
+    surface_stylesheet,
+)
 
 
 class IntegratedMapViewer(QMainWindow):
@@ -57,7 +71,7 @@ class IntegratedMapViewer(QMainWindow):
 
         # UI components
         self.renderer = MapRenderer()
-        self.setCentralWidget(self.renderer)
+        self._build_window_chrome()
         self._build_menu_bar()
         self._build_media_dock()
 
@@ -148,6 +162,10 @@ class IntegratedMapViewer(QMainWindow):
             print(f"[MapViewer] Loaded {len(objects)} objects from XML")
             print(f"[MapViewer] Available signals: {len(self._signal_data_map)}")
 
+            if hasattr(self, "_header_action_button"):
+                filename = Path(xml_path).name
+                self._header_action_button.setText(f"Reload {filename}")
+
         except Exception as e:
             QMessageBox.critical(
                 self,
@@ -165,6 +183,39 @@ class IntegratedMapViewer(QMainWindow):
         # Open Map action
         open_map_action = file_menu.addAction("&Open Map...")
         open_map_action.triggered.connect(self.load_map_file)
+
+    def _build_window_chrome(self):
+        """Wrap the renderer with the shared themed chrome."""
+        central = QWidget()
+        central.setObjectName("MapViewerSurface")
+        central.setStyleSheet(surface_stylesheet("MapViewerSurface"))
+
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header_button = QPushButton("Load Map...")
+        apply_primary_button_style(header_button)
+        header_button.clicked.connect(self.load_map_file)
+        self._header_action_button = header_button
+
+        header = create_header_bar(
+            "PLC Map Viewer",
+            "Replay mapped PLC activity alongside timing intervals.",
+            extra_widgets=[header_button],
+        )
+        layout.addWidget(header)
+
+        renderer_card = QWidget()
+        renderer_card.setObjectName("MapViewerCard")
+        renderer_card.setStyleSheet(card_panel_styles("MapViewerCard"))
+        card_layout = QVBoxLayout(renderer_card)
+        card_layout.setContentsMargins(8, 8, 8, 8)
+        card_layout.setSpacing(0)
+        card_layout.addWidget(self.renderer)
+        layout.addWidget(renderer_card, stretch=1)
+
+        self.setCentralWidget(central)
 
     def _build_media_dock(self):
         """Build the media controls dock."""

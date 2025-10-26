@@ -22,6 +22,15 @@ from plc_visualizer.utils import SignalData
 from plc_visualizer.validation import SignalValidator, ValidationViolation
 from ..components.signal_filter_widget import SignalFilterWidget
 from ..components.data_table_widget import DataTableWidget
+from ..theme import (
+    MUTED_TEXT,
+    PRIMARY_NAVY,
+    apply_primary_button_style,
+    apply_secondary_button_style,
+    card_panel_styles,
+    create_header_bar,
+    surface_stylesheet,
+)
 
 
 class LogTableWindow(QMainWindow):
@@ -213,28 +222,60 @@ class LogTableWindow(QMainWindow):
     # Internal helpers ---------------------------------------------------
     def _init_ui(self):
         central = QWidget()
+        central.setObjectName("LogTableSurface")
+        central.setStyleSheet(surface_stylesheet("LogTableSurface"))
         self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+
+        root_layout = QVBoxLayout(central)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        header = create_header_bar(
+            "Log Table",
+            "Browse parsed rows, filter signals, and run validation rules.",
+        )
+        root_layout.addWidget(header)
+
+        content = QWidget()
+        content.setObjectName("LogTableContent")
+        content.setStyleSheet(surface_stylesheet("LogTableContent"))
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(12)
+        root_layout.addWidget(content, stretch=1)
 
         # Validation toolbar
         validation_panel = self._create_validation_toolbar()
-        layout.addWidget(validation_panel)
+        content_layout.addWidget(validation_panel)
 
         self.signal_filter = SignalFilterWidget()
         self.signal_filter.visible_signals_changed.connect(self._on_visible_signals_changed)
         self.signal_filter.plot_intervals_requested.connect(self._handle_plot_intervals)
-        layout.addWidget(self.signal_filter)
+
+        filter_card = QWidget()
+        filter_card.setObjectName("LogFilterCard")
+        filter_card.setStyleSheet(card_panel_styles("LogFilterCard"))
+        filter_layout = QVBoxLayout(filter_card)
+        filter_layout.setContentsMargins(12, 12, 12, 12)
+        filter_layout.setSpacing(8)
+        filter_layout.addWidget(self.signal_filter)
+        content_layout.addWidget(filter_card)
 
         self.data_table = DataTableWidget()
-        layout.addWidget(self.data_table, stretch=1)
+        table_card = QWidget()
+        table_card.setObjectName("LogTableCard")
+        table_card.setStyleSheet(card_panel_styles("LogTableCard"))
+        table_layout = QVBoxLayout(table_card)
+        table_layout.setContentsMargins(12, 12, 12, 12)
+        table_layout.setSpacing(0)
+        table_layout.addWidget(self.data_table)
+        content_layout.addWidget(table_card, stretch=1)
 
     def _create_validation_toolbar(self) -> QFrame:
         """Create the validation control toolbar."""
         frame = QFrame()
-        frame.setFrameShape(QFrame.StyledPanel)
-        frame.setFrameShadow(QFrame.Raised)
+        frame.setObjectName("ValidationPanel")
+        frame.setStyleSheet(card_panel_styles("ValidationPanel"))
 
         layout = QHBoxLayout(frame)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -242,17 +283,19 @@ class LogTableWindow(QMainWindow):
 
         # Section label
         title_label = QLabel("<b>Signal Validation:</b>")
+        title_label.setStyleSheet("font-size: 13px; color: #003D82;")
         layout.addWidget(title_label)
 
         # Load Rules button
         self.load_rules_btn = QPushButton("Load Rules...")
         self.load_rules_btn.setToolTip("Load validation rules from a YAML file")
         self.load_rules_btn.clicked.connect(self._on_load_rules_clicked)
+        apply_secondary_button_style(self.load_rules_btn)
         layout.addWidget(self.load_rules_btn)
 
         # Status label
         self.rules_status_label = QLabel("No rules loaded")
-        self.rules_status_label.setStyleSheet("color: gray; font-style: italic;")
+        self.rules_status_label.setStyleSheet(f"color: {MUTED_TEXT}; font-style: italic;")
         layout.addWidget(self.rules_status_label)
 
         layout.addStretch()
@@ -262,6 +305,7 @@ class LogTableWindow(QMainWindow):
         self.run_validation_btn.setToolTip("Validate log data against loaded rules")
         self.run_validation_btn.setEnabled(False)  # Disabled until rules are loaded
         self.run_validation_btn.clicked.connect(self._on_run_validation_clicked)
+        apply_primary_button_style(self.run_validation_btn)
         layout.addWidget(self.run_validation_btn)
 
         return frame
@@ -278,11 +322,11 @@ class LogTableWindow(QMainWindow):
         """Update validation UI state based on loaded rules."""
         if self._validator is not None and self._loaded_rules_path is not None:
             self.rules_status_label.setText(f"Loaded: {self._loaded_rules_path.name}")
-            self.rules_status_label.setStyleSheet("color: green;")
+            self.rules_status_label.setStyleSheet(f"color: {PRIMARY_NAVY}; font-weight: bold;")
             self.run_validation_btn.setEnabled(True)
         else:
             self.rules_status_label.setText("No rules loaded")
-            self.rules_status_label.setStyleSheet("color: gray; font-style: italic;")
+            self.rules_status_label.setStyleSheet(f"color: {MUTED_TEXT}; font-style: italic;")
             self.run_validation_btn.setEnabled(False)
 
     def _on_visible_signals_changed(self, visible_names: list[str]):

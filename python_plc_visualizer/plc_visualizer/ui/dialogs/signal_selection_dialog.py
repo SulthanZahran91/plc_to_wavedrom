@@ -13,9 +13,19 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QVBoxLayout,
+    QWidget,
 )
 
 from plc_visualizer.utils import SignalData
+from ..theme import (
+    MUTED_TEXT,
+    SURFACE_BG,
+    apply_primary_button_style,
+    apply_secondary_button_style,
+    card_panel_styles,
+    create_header_bar,
+    surface_stylesheet,
+)
 
 
 class SignalSelectionDialog(QDialog):
@@ -29,6 +39,11 @@ class SignalSelectionDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Select Signal to Plot")
         self.resize(420, 180)
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {SURFACE_BG};
+            }}
+        """)
 
         self._signals_by_device: Dict[str, List[SignalData]] = defaultdict(list)
         for signal in signal_data_list:
@@ -60,26 +75,49 @@ class SignalSelectionDialog(QDialog):
     # Internal helpers -------------------------------------------------
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = create_header_bar(
+            "Select Signal",
+            "Choose a device and signal to open interval plots.",
+        )
+        layout.addWidget(header)
+
+        content = QWidget()
+        content.setObjectName("SignalSelectionContent")
+        content.setStyleSheet(surface_stylesheet("SignalSelectionContent"))
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(12)
+        layout.addWidget(content, stretch=1)
 
         intro = QLabel("Choose the device first, then pick a signal to plot.")
         intro.setWordWrap(True)
-        layout.addWidget(intro)
+        intro.setStyleSheet(f"color: {MUTED_TEXT};")
+        content_layout.addWidget(intro)
 
-        form = QFormLayout()
+        form_card = QWidget()
+        form_card.setObjectName("SignalSelectionCard")
+        form_card.setStyleSheet(card_panel_styles("SignalSelectionCard"))
+        form = QFormLayout(form_card)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
         form.setSpacing(10)
-
         form.addRow("Device:", self._device_combo)
         form.addRow("Signal:", self._signal_combo)
-        layout.addLayout(form)
+        content_layout.addWidget(form_card)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        cancel_btn = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if ok_btn is not None:
+            apply_primary_button_style(ok_btn)
+        if cancel_btn is not None:
+            apply_secondary_button_style(cancel_btn)
+        content_layout.addWidget(buttons)
 
     def _populate_devices(self) -> None:
         self._device_combo.clear()

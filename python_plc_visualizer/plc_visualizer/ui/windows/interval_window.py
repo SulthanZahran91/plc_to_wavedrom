@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
-    QGroupBox,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -45,6 +45,15 @@ from PySide6.QtWidgets import (
 
 # ----- Project model type -----
 from plc_visualizer.utils import SignalData
+from ..theme import (
+    MUTED_TEXT,
+    PRIMARY_NAVY,
+    SURFACE_BG,
+    apply_secondary_button_style,
+    card_panel_styles,
+    create_header_bar,
+    surface_stylesheet,
+)
 
 
 # =========================
@@ -677,17 +686,47 @@ class SignalIntervalDialog(QDialog):
 
         self.setWindowTitle(f"Transition Intervals — {signal_data.display_label}")
         self.resize(980, 720)
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {SURFACE_BG};
+            }}
+        """)
 
         # --- Layout
         root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        header = create_header_bar(
+            "Transition Intervals",
+            f"Signal: {signal_data.display_label}",
+        )
+        root.addWidget(header)
+
+        content = QWidget()
+        content.setObjectName("IntervalDialogContent")
+        content.setStyleSheet(surface_stylesheet("IntervalDialogContent"))
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(12)
+        root.addWidget(content, stretch=1)
 
         desc = QLabel("Measure duration for different patterns and visualize with time-window binning.")
         desc.setWordWrap(True)
-        root.addWidget(desc)
+        desc.setStyleSheet(f"color: {MUTED_TEXT};")
+        content_layout.addWidget(desc)
+
+        controls_label = QLabel("Measurement")
+        controls_label.setStyleSheet(f"font-weight: bold; font-size: 13px; color: {PRIMARY_NAVY};")
+        content_layout.addWidget(controls_label)
 
         # ---- Controls bar
-        controls_box = QGroupBox("Measurement")
+        controls_box = QFrame()
+        controls_box.setObjectName("IntervalControlsCard")
+        controls_box.setStyleSheet(card_panel_styles("IntervalControlsCard"))
         controls_layout = QHBoxLayout(controls_box)
+        controls_layout.setContentsMargins(12, 12, 12, 12)
+        controls_layout.setSpacing(16)
 
         # Radio group
         self.rb_change = QRadioButton("Change → change")
@@ -745,7 +784,7 @@ class SignalIntervalDialog(QDialog):
         opts_col.addLayout(bin_row)
 
         controls_layout.addLayout(opts_col)
-        root.addWidget(controls_box)
+        content_layout.addWidget(controls_box)
 
         # ---- Plot
         self.plot_widget = IntervalPlotWidget(
@@ -755,7 +794,14 @@ class SignalIntervalDialog(QDialog):
             floor_percentile=0.0,      # axis will start at min by default (not zero)
             show_band=self.cb_band.isChecked(),
         )
-        root.addWidget(self.plot_widget, stretch=1)
+        plot_card = QWidget()
+        plot_card.setObjectName("IntervalPlotCard")
+        plot_card.setStyleSheet(card_panel_styles("IntervalPlotCard"))
+        plot_layout = QVBoxLayout(plot_card)
+        plot_layout.setContentsMargins(12, 12, 12, 12)
+        plot_layout.setSpacing(0)
+        plot_layout.addWidget(self.plot_widget)
+        content_layout.addWidget(plot_card, stretch=1)
 
         # ---- Table
         self.table = QTableWidget(0, 5, self)
@@ -765,13 +811,23 @@ class SignalIntervalDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        root.addWidget(self.table, stretch=1)
+        table_card = QWidget()
+        table_card.setObjectName("IntervalTableCard")
+        table_card.setStyleSheet(card_panel_styles("IntervalTableCard"))
+        table_layout = QVBoxLayout(table_card)
+        table_layout.setContentsMargins(12, 12, 12, 12)
+        table_layout.setSpacing(0)
+        table_layout.addWidget(self.table)
+        content_layout.addWidget(table_card, stretch=1)
 
         # ---- Buttons
         btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         btns.rejected.connect(self.reject)
         btns.accepted.connect(self.accept)
-        root.addWidget(btns)
+        close_btn = btns.button(QDialogButtonBox.StandardButton.Close)
+        if close_btn is not None:
+            apply_secondary_button_style(close_btn)
+        content_layout.addWidget(btns)
 
         # Wire events
         self.rb_change.toggled.connect(self._on_mode_changed)

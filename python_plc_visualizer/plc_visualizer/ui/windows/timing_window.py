@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QWidget,
     QSplitter,
     QVBoxLayout,
-    QHBoxLayout,
     QMessageBox,
 )
 
@@ -22,6 +21,7 @@ from ..components.waveform.zoom_controls import ZoomControls
 from ..components.waveform.pan_controls import PanControls
 from ..components.waveform.time_range_selector import TimeRangeSelector
 from ..components.signal_filter_widget import SignalFilterWidget
+from ..theme import create_header_bar, card_panel_styles, surface_stylesheet
 
 
 class TimingDiagramWindow(QMainWindow):
@@ -93,20 +93,45 @@ class TimingDiagramWindow(QMainWindow):
     # Internal helpers ---------------------------------------------------
     def _init_ui(self):
         central = QWidget()
+        central.setObjectName("TimingWindowSurface")
+        central.setStyleSheet(surface_stylesheet("TimingWindowSurface"))
         self.setCentralWidget(central)
-        outer_layout = QVBoxLayout(central)
-        outer_layout.setContentsMargins(12, 12, 12, 12)
-        outer_layout.setSpacing(10)
+
+        root_layout = QVBoxLayout(central)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        header = create_header_bar(
+            "Timing Diagram",
+            "Waveform explorer for parsed PLC signals.",
+        )
+        root_layout.addWidget(header)
+
+        content = QWidget()
+        content.setObjectName("TimingWindowContent")
+        content.setStyleSheet(surface_stylesheet("TimingWindowContent"))
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(12)
+        root_layout.addWidget(content, stretch=1)
+
+        splitter_frame = QWidget()
+        splitter_frame.setObjectName("TimingSplitterCard")
+        splitter_frame.setStyleSheet(card_panel_styles("TimingSplitterCard"))
+        splitter_frame_layout = QVBoxLayout(splitter_frame)
+        splitter_frame_layout.setContentsMargins(12, 12, 12, 12)
+        splitter_frame_layout.setSpacing(0)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(10)
         splitter.setStyleSheet("""
             QSplitter::handle:horizontal {
                 background-color: #d7dee4;
-                margin: 0px;
+                margin: 0;
             }
         """)
-        outer_layout.addWidget(splitter, stretch=1)
+        splitter_frame_layout.addWidget(splitter, stretch=1)
+        content_layout.addWidget(splitter_frame, stretch=1)
 
         # Filter panel
         filter_container = QWidget()
