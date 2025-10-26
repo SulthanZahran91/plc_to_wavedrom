@@ -11,7 +11,6 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QApplication,
-    QDialog,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -19,6 +18,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QGridLayout,
+    QHBoxLayout,
+    QLabel,
 )
 
 from plc_visualizer.models import ParseResult, ParsedLog
@@ -27,8 +28,10 @@ from plc_visualizer.utils import (
     SignalData,
     merge_parse_results,
     process_signals_for_waveform,
+    compute_signal_states,
 )
 from .file_upload_widget import FileUploadWidget
+from .file_list_widget import FileListWidget
 from .stats_widget import StatsWidget
 from .timing_diagram_window import TimingDiagramWindow
 from .log_table_window import LogTableWindow
@@ -128,100 +131,268 @@ class MainWindow(QMainWindow):
         self._table_window: Optional[LogTableWindow] = None
         self._map_viewer_window = None
         self._interval_windows: dict[str, SignalIntervalDialog] = {}
+        self._interval_selection_window: Optional[SignalSelectionDialog] = None
 
         self.stats_widget: Optional[StatsWidget] = None
+        self.file_list_widget: Optional[FileListWidget] = None
 
         self._init_ui()
 
     def _init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("PLC Log Visualizer")
+        self.setMinimumSize(1400, 900)
 
         self._create_menu_bar()
 
+        # Create header widget
+        header_widget = QWidget()
+        header_widget.setStyleSheet("""
+            QWidget {
+                background-color: #003D82;
+                padding: 10px 18px;
+            }
+        """)
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(18, 10, 18, 10)
+        header_layout.setSpacing(0)
+
+        # Header title
+        header_label = QLabel("PLC Log Visualizer")
+        header_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+        header_layout.addWidget(header_label)
+        header_layout.addStretch()
+
+        # Clear File button in header
+        clear_button = QPushButton("Clear File")
+        clear_button.setMaximumWidth(120)
+        clear_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4285F4;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1967D2;
+            }
+            QPushButton:pressed {
+                background-color: #0D47A1;
+            }
+        """)
+        clear_button.clicked.connect(self._on_clear_file)
+        header_layout.addWidget(clear_button)
+
+        # Main layout structure
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(18, 18, 18, 18)
-        main_layout.setSpacing(16)
 
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Add header
+        main_layout.addWidget(header_widget)
+
+        # Content area
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(16)
+
+        # 2-column top section: Upload/Stats (left) and File List (right)
+        top_section = QWidget()
+        top_layout = QHBoxLayout(top_section)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(16)
+
+        # LEFT COLUMN: Upload widget and stats
+        left_column = QWidget()
+        left_layout = QVBoxLayout(left_column)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(12)
+
+        # Upload section label
+        upload_label = QLabel("📄 Log File")
+        upload_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        left_layout.addWidget(upload_label)
+
+        # Upload widget
         self.upload_widget = FileUploadWidget()
         self.upload_widget.files_selected.connect(self._on_files_selected)
-        main_layout.addWidget(self.upload_widget)
+        left_layout.addWidget(self.upload_widget)
 
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFormat("Parsing files... %p%")
-        main_layout.addWidget(self.progress_bar)
-
+        # Stats widget
         stats_container = QWidget()
         stats_layout = QVBoxLayout(stats_container)
         stats_layout.setContentsMargins(0, 0, 0, 0)
         stats_layout.setSpacing(0)
 
         self.stats_widget = StatsWidget(stats_container)
-        self.stats_widget.setMaximumWidth(420)
         stats_layout.addWidget(self.stats_widget)
 
-        main_layout.addWidget(stats_container, alignment=Qt.AlignmentFlag.AlignHCenter)
+        left_layout.addWidget(stats_container)
+        top_layout.addWidget(left_column, 40)  # 40% width
 
+        # RIGHT COLUMN: File list
+        self.file_list_widget = FileListWidget()
+        self.file_list_widget.file_removed.connect(self._on_file_removed_from_list)
+        top_layout.addWidget(self.file_list_widget, 60)  # 60% width
+
+        content_layout.addWidget(top_section, 1)
+
+        # Progress bar (hidden during normal operation, shown during parsing)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("Parsing files... %p%")
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #BDBDBD;
+                border-radius: 4px;
+                text-align: center;
+                background-color: #f5f5f5;
+                height: 24px;
+            }
+            QProgressBar::chunk {
+                background-color: #4285F4;
+            }
+        """)
+        content_layout.addWidget(self.progress_bar)
+
+        # Buttons section
         buttons_container = QWidget()
         buttons_layout = QGridLayout(buttons_container)
-        buttons_layout.setContentsMargins(0, 0, 0, 0)
-        buttons_layout.setHorizontalSpacing(18)
+        buttons_layout.setContentsMargins(0, 16, 0, 0)
+        buttons_layout.setHorizontalSpacing(16)
         buttons_layout.setVerticalSpacing(16)
 
-        self.timing_button = QPushButton("Open Timing Diagram")
+        # Timing Diagram button (gray)
+        self.timing_button = QPushButton("⚙ Timing Diagram")
         self.timing_button.clicked.connect(self._open_timing_diagram_window)
-        buttons_layout.addWidget(self.timing_button, 0, 0)
-
-        self.table_button = QPushButton("Open Log Table")
-        self.table_button.clicked.connect(self._open_log_table_window)
-        buttons_layout.addWidget(self.table_button, 0, 1)
-
-        self.map_button = QPushButton("Open Map Viewer")
-        self.map_button.clicked.connect(self._open_map_viewer)
-        buttons_layout.addWidget(self.map_button, 1, 0)
-
-        self.interval_button = QPushButton("Plot Signal Intervals")
-        self.interval_button.clicked.connect(self._open_signal_interval_dialog)
-        buttons_layout.addWidget(self.interval_button, 1, 1)
-
-        for button in (
-            self.timing_button,
-            self.table_button,
-            self.map_button,
-            self.interval_button,
-        ):
-            button.setMinimumWidth(200)
-
-        main_layout.addWidget(buttons_container, alignment=Qt.AlignmentFlag.AlignHCenter)
-        main_layout.addStretch()
-
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #ffffff;
-            }
+        self.timing_button.setMinimumHeight(120)
+        self.timing_button.setMinimumWidth(250)
+        self.timing_button.setStyleSheet("""
             QPushButton {
-                padding: 8px 16px;
-                background-color: #2196F3;
+                background-color: #9E9E9E;
                 color: white;
                 border: none;
-                border-radius: 4px;
-                font-size: 13px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+                padding: 15px;
             }
             QPushButton:hover {
-                background-color: #1976D2;
+                background-color: #757575;
+            }
+            QPushButton:pressed {
+                background-color: #616161;
+            }
+            QPushButton:disabled {
+                background-color: #BDBDBD;
+                color: #f5f5f5;
+            }
+        """)
+        buttons_layout.addWidget(self.timing_button, 0, 0)
+
+        # Map Viewer button (blue - primary)
+        self.map_button = QPushButton("📖 Map Viewer")
+        self.map_button.clicked.connect(self._open_map_viewer)
+        self.map_button.setMinimumHeight(120)
+        self.map_button.setMinimumWidth(250)
+        self.map_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4285F4;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+                padding: 15px;
+            }
+            QPushButton:hover {
+                background-color: #1967D2;
             }
             QPushButton:pressed {
                 background-color: #0D47A1;
             }
             QPushButton:disabled {
                 background-color: #BDBDBD;
+                color: #f5f5f5;
             }
         """)
+        buttons_layout.addWidget(self.map_button, 0, 1)
+
+        # Transition Intervals button (gray)
+        self.interval_button = QPushButton("📈 Transition Intervals")
+        self.interval_button.clicked.connect(self._open_signal_interval_windows)
+        self.interval_button.setMinimumHeight(120)
+        self.interval_button.setMinimumWidth(250)
+        self.interval_button.setStyleSheet("""
+            QPushButton {
+                background-color: #9E9E9E;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+                padding: 15px;
+            }
+            QPushButton:hover {
+                background-color: #757575;
+            }
+            QPushButton:pressed {
+                background-color: #616161;
+            }
+            QPushButton:disabled {
+                background-color: #BDBDBD;
+                color: #f5f5f5;
+            }
+        """)
+        buttons_layout.addWidget(self.interval_button, 1, 0)
+
+        # Log Table button (gray)
+        self.table_button = QPushButton("📋 Log Table")
+        self.table_button.clicked.connect(self._open_log_table_window)
+        self.table_button.setMinimumHeight(120)
+        self.table_button.setMinimumWidth(250)
+        self.table_button.setStyleSheet("""
+            QPushButton {
+                background-color: #9E9E9E;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+                padding: 15px;
+            }
+            QPushButton:hover {
+                background-color: #757575;
+            }
+            QPushButton:pressed {
+                background-color: #616161;
+            }
+            QPushButton:disabled {
+                background-color: #BDBDBD;
+                color: #f5f5f5;
+            }
+        """)
+        buttons_layout.addWidget(self.table_button, 1, 1)
+
+        content_layout.addWidget(buttons_container, 1)
+
+        main_layout.addWidget(content_widget, 1)
+
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #ffffff;
+            }
+        """)
+
         self._update_navigation_buttons(False)
 
     def _update_navigation_buttons(self, has_data: bool):
@@ -247,7 +418,7 @@ class MainWindow(QMainWindow):
         map_viewer_action.triggered.connect(self._open_map_viewer)
 
         interval_action = tools_menu.addAction("Plot &Signal Intervals")
-        interval_action.triggered.connect(self._open_signal_interval_dialog)
+        interval_action.triggered.connect(self._open_signal_interval_windows)
 
     def _open_timing_diagram_window(self):
         """Launch or focus the timing diagram window."""
@@ -385,8 +556,8 @@ class MainWindow(QMainWindow):
                 f"An error occurred while opening the map viewer:\n{str(e)}"
             )
 
-    def _open_signal_interval_dialog(self):
-        """Prompt the user to select a signal and show its interval dialog."""
+    def _open_signal_interval_windows(self):
+        """Open or focus signal interval windows instead of blocking dialogs."""
         if not self._signal_data_list:
             QMessageBox.information(
                 self,
@@ -399,9 +570,69 @@ class MainWindow(QMainWindow):
             self._open_signal_interval_for_key(self._signal_data_list[0].key)
             return
 
-        dialog = SignalSelectionDialog(self._signal_data_list, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_key:
-            self._open_signal_interval_for_key(dialog.selected_key)
+        if self._interval_selection_window is not None:
+            try:
+                self._interval_selection_window.show()
+                self._interval_selection_window.raise_()
+                self._interval_selection_window.activateWindow()
+                return
+            except RuntimeError:
+                self._interval_selection_window = None
+
+        selector = SignalSelectionDialog(self._signal_data_list, self)
+        selector.setModal(False)
+        selector.setWindowModality(Qt.WindowModality.NonModal)
+        selector.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        selector.accepted.connect(lambda sel=selector: self._handle_signal_selection(sel))
+        selector.destroyed.connect(self._on_signal_selection_window_destroyed)
+        self._interval_selection_window = selector
+
+        selector.show()
+        selector.raise_()
+        selector.activateWindow()
+
+    def _handle_signal_selection(self, selector: SignalSelectionDialog):
+        """Handle acceptance from the non-modal signal selector."""
+        selected_key = selector.selected_key
+        if selected_key:
+            self._open_signal_interval_for_key(selected_key)
+
+    def _on_signal_selection_window_destroyed(self, _obj=None):
+        """Clear selection window reference once it closes."""
+        self._interval_selection_window = None
+
+    def _ensure_signal_states(self, signal_data: SignalData) -> bool:
+        """Ensure SignalData has populated states by recomputing if necessary."""
+        if signal_data.states:
+            return True
+
+        if not self._merged_parsed_log:
+            return False
+
+        try:
+            compute_signal_states(signal_data, self._merged_parsed_log)
+        except Exception as exc:
+            print(f"[Intervals] Failed to rebuild states for {signal_data.key}: {exc}")
+            return False
+
+        return bool(signal_data.states)
+
+    def _pin_signal_data(self, signal_key: str):
+        """Prevent a signal's states from being cleared while an interval window is open."""
+        signal_data = self._signal_data_map.get(signal_key)
+        if signal_data:
+            signal_data.pinned = True
+
+    def _unpin_signal_data(self, signal_key: str):
+        """Allow a signal's states to be cleared when no window depends on it."""
+        signal_data = self._signal_data_map.get(signal_key)
+        if signal_data:
+            signal_data.pinned = False
+
+    def _on_interval_window_destroyed(self, signal_key: str):
+        """Cleanup when a signal interval window is closed."""
+        self._interval_windows.pop(signal_key, None)
+        self._unpin_signal_data(signal_key)
 
     def _open_signal_interval_for_key(self, signal_key: str):
         """Open the signal interval dialog for a specific signal key."""
@@ -418,6 +649,15 @@ class MainWindow(QMainWindow):
             return
 
         if not signal_data.states or len(signal_data.states) < 2:
+            if not self._ensure_signal_states(signal_data):
+                QMessageBox.information(
+                    self,
+                    "Transitions Not Available",
+                    "Could not reconstruct transitions for this signal. Reload the log and try again.",
+                )
+                return
+
+        if len(signal_data.states) < 2:
             QMessageBox.information(
                 self,
                 "No Transitions",
@@ -439,8 +679,9 @@ class MainWindow(QMainWindow):
         window.setModal(False)
         window.setWindowModality(Qt.WindowModality.NonModal)
         window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        window.destroyed.connect(lambda _obj=None, key=signal_key: self._interval_windows.pop(key, None))
+        window.destroyed.connect(lambda _obj=None, key=signal_key: self._on_interval_window_destroyed(key))
         self._interval_windows[signal_key] = window
+        self._pin_signal_data(signal_key)
 
         window.show()
         window.raise_()
@@ -482,6 +723,12 @@ class MainWindow(QMainWindow):
             return
 
         self._current_files = resolved_paths
+
+        # Add files to file list widget
+        if self.file_list_widget:
+            for file_path in resolved_paths:
+                self.file_list_widget.add_file(file_path)
+
         self._parse_files(resolved_paths)
 
     def _parse_files(self, file_paths: list[str]):
@@ -561,6 +808,10 @@ class MainWindow(QMainWindow):
         self.progress_bar.reset()
         self.progress_bar.setFormat("Parsing files... %p%")
         self.upload_widget.setEnabled(True)
+
+        # Hide progress bars in file list widget
+        if self.file_list_widget:
+            self.file_list_widget.hide_all_progress()
 
         self._file_results = per_file_results
         self._merged_parsed_log = aggregated_result.data
@@ -680,6 +931,79 @@ class MainWindow(QMainWindow):
         self.progress_bar.setFormat(
             f"Parsing {current}/{total} file(s) - {filename}"
         )
+
+        # Update individual file progress in the file list widget
+        if self.file_list_widget and file_path:
+            # Calculate progress for this file as a percentage
+            file_progress = int((current / total) * 100) if total > 0 else 0
+            self.file_list_widget.update_progress(file_path, file_progress)
+
+    def _on_file_removed_from_list(self, file_path: str):
+        """Handle file removal from file list widget (trash button clicked)."""
+        if file_path in self._current_files:
+            self._current_files.remove(file_path)
+
+    def _on_clear_file(self):
+        """Handle Clear File button click - reset everything."""
+        # Clear file list
+        if self.file_list_widget:
+            self.file_list_widget.clear_all()
+
+        # Clear current files
+        self._current_files = []
+
+        # Clear stats
+        if self.stats_widget:
+            self.stats_widget.clear()
+
+        # Clear parsed data
+        self._merged_parsed_log = None
+        self._signal_data_list = []
+        self._signal_data_map = {}
+        self._file_results = {}
+
+        # Reset upload widget
+        self.upload_widget.set_status(
+            "📁 Drag and drop log files here\nor click to browse"
+        )
+
+        # Close all sub-windows
+        if self._timing_window is not None:
+            try:
+                self._timing_window.close()
+                self._timing_window = None
+            except RuntimeError:
+                self._timing_window = None
+
+        if self._table_window is not None:
+            try:
+                self._table_window.close()
+                self._table_window = None
+            except RuntimeError:
+                self._table_window = None
+
+        if self._map_viewer_window is not None:
+            try:
+                self._map_viewer_window.close()
+                self._map_viewer_window = None
+            except RuntimeError:
+                self._map_viewer_window = None
+
+        # Close all interval windows
+        for window in list(self._interval_windows.values()):
+            try:
+                window.close()
+            except RuntimeError:
+                pass
+        self._interval_windows.clear()
+
+        # Update buttons
+        self._update_navigation_buttons(False)
+
+        # Stop parsing if in progress
+        if self._parser_thread and self._parser_thread.isRunning():
+            self._parser_thread.quit()
+            self._parser_thread.wait()
 
     def resizeEvent(self, event: QResizeEvent):
         """Log resize information (useful for debugging Wayland sizing)."""

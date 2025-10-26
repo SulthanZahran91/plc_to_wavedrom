@@ -2,6 +2,7 @@
 
 from .main_window import MainWindow
 from .file_upload_widget import FileUploadWidget
+from .file_list_widget import FileListWidget
 from .stats_widget import StatsWidget
 from .data_table_widget import DataTableWidget
 from .waveform_view import WaveformView
@@ -15,6 +16,7 @@ from .log_table_window import LogTableWindow
 __all__ = [
     'MainWindow',
     'FileUploadWidget',
+    'FileListWidget',
     'StatsWidget',
     'DataTableWidget',
     'WaveformView',

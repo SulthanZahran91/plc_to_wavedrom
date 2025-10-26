@@ -423,7 +423,7 @@ class WaveformScene(QGraphicsScene):
         if not entries:
             # Clear all states if no entries in range
             for signal_data in self.signal_data_map.values():
-                signal_data.clear_states()
+                signal_data.clear_states(force=True)
             return
 
         # Group entries by signal
@@ -456,10 +456,15 @@ class WaveformScene(QGraphicsScene):
                 )
                 signal_data.build_time_index(start_time)
                 signal_data._entries_count = len(signal_entries)
+                if len(signal_entries) > 1:
+                    signal_data.transition_count = max(
+                        signal_data.transition_count,
+                        len(signal_entries) - 1,
+                    )
 
                 # Update signal type from first entry
                 if signal_data.signal_type is None:
                     signal_data.signal_type = signal_entries[0].signal_type
             else:
                 # Signal has no entries in this range
-                signal_data.clear_states()
+                signal_data.clear_states(force=True)

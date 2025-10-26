@@ -39,11 +39,15 @@ class SignalData:
     start_offsets: array = field(default_factory=lambda: array("d"), repr=False)
     end_offsets: array = field(default_factory=lambda: array("d"), repr=False)
     _entries_count: int = 0  # Track count for stats without storing entries
+    transition_count: int = 0  # Cached total transitions (entries - 1)
+    pinned: bool = False  # Prevent clearing when another view depends on the data
 
     @property
     def has_transitions(self) -> bool:
         """Check if signal has any transitions."""
-        return len(self.states) > 1
+        if self.states:
+            return len(self.states) > 1
+        return self.transition_count > 0
 
     @property
     def display_label(self) -> str:
@@ -81,12 +85,14 @@ class SignalData:
         self.start_offsets = start_offsets
         self.end_offsets = end_offsets
 
-    def clear_states(self):
+    def clear_states(self, *, force: bool = False):
         """Clear computed states to free memory when signal is hidden.
 
         This is a memory optimization - states can be recomputed on-demand
         when the signal becomes visible again.
         """
+        if self.pinned and not force:
+            return
         self.states.clear()
         self.start_offsets = array("d")
         self.end_offsets = array("d")
@@ -192,7 +198,8 @@ def process_signals_for_waveform(
             key=f"{device_id}::{signal_name}",
             signal_type=signal_type,
             states=states,
-            _entries_count=len(entries)  # Store count, not entries
+            _entries_count=len(entries),  # Store count, not entries
+            transition_count=max(0, len(entries) - 1)
         )
 
         if not lazy:
@@ -239,3 +246,4 @@ def compute_signal_states(
     anchor = parsed_log.time_range[0] if parsed_log.time_range else entries[0].timestamp
     signal_data.build_time_index(anchor)
     signal_data._entries_count = len(entries)
+    signal_data.transition_count = max(signal_data.transition_count, len(entries) - 1)

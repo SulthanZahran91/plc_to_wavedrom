@@ -1,30 +1,31 @@
 # Repository Guidelines
 
-This guide captures the current conventions for contributing to the PLC visualizer so agents can ramp quickly and deliver consistent updates.
+PLC Visualizer renders PLC log streams into Qt dashboards, so this guide highlights the few conventions that keep the tool consistent and reliable.
 
 ## Project Structure & Module Organization
 
-Core Python packages live under `plc_visualizer/`. Domain models are in `plc_visualizer/models/`, parsers and log readers in `plc_visualizer/parsers/`, Qt windows and widgets in `plc_visualizer/ui/`, and shared helpers in `plc_visualizer/utils/`. Pytest suites reside in `plc_visualizer/tests/`. Sample PLC logs for demos are stored in `sample_logs/` and `test_data/`, while synthetic runs generated via `generate_random_log.py` land in `generated_logs/`. Maintenance and conversion scripts are organized under `scripts/` and `tools/`.
+Core source lives inside `plc_visualizer/`: models in `models/`, stream readers and parsers in `parsers/`, Qt windows/widgets in `ui/`, and cross-cutting helpers in `utils/`. Tests mirror that tree under `plc_visualizer/tests/`. Demo and fixture data live in `sample_logs/` and `test_data/`, while synthetic runs from `generate_random_log.py` are written to `generated_logs/`. Operational scripts (`scripts/`) and utilities (`tools/`) hold maintenance and visualization helpers such as the map viewer playback harness.
 
 ## Build, Test, and Development Commands
 
-- `uv sync`: install dependencies declared in `pyproject.toml`/`uv.lock`.
-- `uv run python python_plc_visualizer/main.py`: launch the main GUI (Wayland-safe sizing is handled in code).
-- `uv run pytest`: execute the automated test suite; add `-k` filters when iterating locally.
-- `uv run python python_plc_visualizer/tools/map_viewer/playback_demo.py`: exercise the standalone map viewer with generated fixtures.
+- `uv sync` — install or update the locked dependency set.
+- `uv run python main.py` — launch the main GUI; Wayland-friendly sizing logic resides in `main.py`.
+- `uv run python tools/map_viewer/playback_demo.py` — run the detached map viewer against bundled fixtures.
+- `uv run pytest` — execute the full test suite; append `-k parser` or similar when narrowing scope.
+- `uv run python scripts/test_chunked_loading.py` — manual smoke test for streaming ingestion regressions.
 
 ## Coding Style & Naming Conventions
 
-Follow PEP 8 with 4-space indentation, explicit imports, and `snake_case` for modules, functions, and variables. Reserve `PascalCase` for Qt widgets and data models. Keep Qt `.ui` loaders, resources, and widget logic isolated under `plc_visualizer/ui/` to avoid cross-layer coupling. Prefer descriptive signal names that mirror the underlying PLC field being visualized.
+Adhere to PEP 8 with 4-space indentation, explicit imports, and `snake_case` for modules, functions, and locals. Reserve `PascalCase` for Qt widgets/data models (e.g., `SignalPanel`). Keep Qt resource loading isolated to `plc_visualizer/ui/` and pass structured models rather than raw dicts across module boundaries. Prefer descriptive signal names that reflect the originating PLC field.
 
 ## Testing Guidelines
 
-Author Pytest modules as `test_<feature>.py` within `plc_visualizer/tests/`. Exercise log parsing edge cases using fixtures drawn from `test_data/`. UI additions should include `pytest-qt` (`qtbot`) coverage for the relevant widgets/windows. Run `uv run pytest --maxfail=1 --disable-warnings` before opening a pull request and add targeted `-k` filters when iterating locally. For streaming stress tests, `uv run python python_plc_visualizer/scripts/test_chunked_loading.py` provides a quick manual check.
+Write Pytest modules as `test_<feature>.py` under `plc_visualizer/tests/`, grouping fixtures by domain. Reuse `test_data/` log artifacts when covering parser edge cases, and lean on `pytest-qt` (`qtbot`) for widget coverage. Run `uv run pytest --maxfail=1 --disable-warnings` before publishing changes, and capture targeted commands (e.g., `uv run pytest -k map_viewer`) in the PR when verifying fixes.
 
 ## Commit & Pull Request Guidelines
 
-Write commits in the “Verb object with context” style seen in history (e.g., `Enhance timestamp handling in parser`). Each pull request should summarize the change, provide test evidence (terminal `pytest` output or viewer screenshots), and link the driving issue. Call out follow-up tasks or required data updates so reviewers can sequence work effectively.
+Follow the “Verb object with context” pattern used in history (`Enhance timestamp handling in parser`). Each PR should summarize scope, link the driving issue, and attach evidence: console `pytest` excerpts, screenshots, or clip recordings for UI tweaks. Highlight blocked follow-ups or data refresh needs so reviewers can queue subsequent work.
 
 ## Security & Configuration Tips
 
-Keep dependencies pinned via `requirements.txt` or `uv.lock` and regenerate them only when necessary. Avoid committing generated logs from `generated_logs/`; share large datasets externally when needed. Review sandbox or hardware requirements before enabling networked PLC features to prevent accidental exposure of sensitive runtime data.
+Dependencies stay pinned in `pyproject.toml`/`uv.lock`; only regenerate locks when necessary and note the change in the PR. Never commit artifacts from `generated_logs/` or other large captures—share them out-of-band. When enabling networked PLC features, confirm sandbox and hardware limits to avoid exposing sensitive runtime data.
