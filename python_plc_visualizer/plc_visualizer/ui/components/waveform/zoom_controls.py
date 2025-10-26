@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon
-from .ClickableLabel import ClickableLabel
+from ..clickable_label import ClickableLabel
 
 
 def format_duration(seconds: float) -> str:

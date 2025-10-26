@@ -1,13 +1,9 @@
 """Main application window for PLC Log Visualizer."""
 
-import atexit
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import Dict, List, Optional
-import multiprocessing as mp
-from multiprocessing.context import BaseContext
+from typing import Optional
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -22,87 +18,17 @@ from PySide6.QtWidgets import (
     QLabel,
 )
 
-from plc_visualizer.models import ParseResult, ParsedLog
-from plc_visualizer.parsers import parser_registry
-from plc_visualizer.utils import (
-    SignalData,
-    merge_parse_results,
-    process_signals_for_waveform,
-    compute_signal_states,
-)
-from .file_upload_widget import FileUploadWidget
-from .file_list_widget import FileListWidget
-from .stats_widget import StatsWidget
-from .timing_diagram_window import TimingDiagramWindow
-from .log_table_window import LogTableWindow
-from .signal_interval_dialog import SignalIntervalDialog
-from .signal_selection_dialog import SignalSelectionDialog
-
-
-class ParserThread(QThread):
-    """Background thread for parsing one or more log files."""
-
-    finished = Signal(object, object, object)  # aggregated_result, per_file_results, signal_data_list
-    progress = Signal(int, int, str)  # current_index, total_files, file_path
-    error = Signal(str)
-    _executor: ProcessPoolExecutor | None = None
-    _mp_context: BaseContext | None = None
-
-    def __init__(self, file_paths: List[str], parent=None):
-        super().__init__(parent)
-        self.file_paths = file_paths
-
-    def run(self):
-        """Parse files in a background thread."""
-        try:
-            per_file_results: Dict[str, ParseResult] = {}
-            total_files = len(self.file_paths)
-
-            for index, file_path in enumerate(self.file_paths, start=1):
-                per_file_results[file_path] = parser_registry.parse(file_path)
-                self.progress.emit(index, total_files, file_path)
-
-            aggregated_result = merge_parse_results(per_file_results)
-            signal_data_list = []
-            if aggregated_result.success and aggregated_result.data:
-                signal_data_list = self._compute_signal_data(aggregated_result.data)
-
-            self.finished.emit(aggregated_result, per_file_results, signal_data_list)
-        except Exception as e:
-            self.error.emit(f"Failed to parse files: {str(e)}")
-
-    @classmethod
-    def _compute_signal_data(cls, parsed_log: ParsedLog):
-        """Compute waveform data, using a subprocess for heavy workloads."""
-        try:
-            entry_count = getattr(parsed_log, "entry_count", 0)
-            if entry_count and entry_count >= 10000:
-                if cls._executor is None:
-                    if cls._mp_context is None:
-                        try:
-                            cls._mp_context = mp.get_context("spawn")
-                        except ValueError:
-                            cls._mp_context = mp.get_context()
-                    try:
-                        cls._executor = ProcessPoolExecutor(
-                            max_workers=1,
-                            mp_context=cls._mp_context,
-                        )
-                    except TypeError:
-                        cls._executor = ProcessPoolExecutor(max_workers=1)
-                future = cls._executor.submit(process_signals_for_waveform, parsed_log)
-                return future.result()
-            return process_signals_for_waveform(parsed_log)
-        except Exception:
-            # Fallback to in-process computation if multiprocessing fails
-            return process_signals_for_waveform(parsed_log)
-
-    @classmethod
-    def shutdown_executor(cls):
-        """Dispose of the shared process pool."""
-        if cls._executor is not None:
-            cls._executor.shutdown(wait=False)
-            cls._executor = None
+from plc_visualizer.app import SessionManager
+from plc_visualizer.models import ParseResult
+from plc_visualizer.utils import SignalData, compute_signal_states
+from .components.file_upload_widget import FileUploadWidget
+from .components.file_list_widget import FileListWidget
+from .components.stats_widget import StatsWidget
+from .windows.timing_window import TimingDiagramWindow
+from .windows.log_table_window import LogTableWindow
+from .windows.interval_window import SignalIntervalDialog
+from .windows.map_viewer_window import IntegratedMapViewer
+from .dialogs.signal_selection_dialog import SignalSelectionDialog
 
 
 class MainWindow(QMainWindow):
@@ -120,13 +46,7 @@ class MainWindow(QMainWindow):
         self._is_wayland = "wayland" in platform_name
         print(f"[MainWindow] Initialized on platform '{platform_name}', is_wayland={self._is_wayland}")
 
-        self._current_files: list[str] = []
-        self._merged_parsed_log: Optional[ParsedLog] = None
-        self._file_results: Dict[str, ParseResult] = {}
-        self._signal_data_list: list[SignalData] = []
-        self._signal_data_map: dict[str, SignalData] = {}
-        self._parser_thread: Optional[ParserThread] = None
-
+        self.session_manager = SessionManager(self)
         self._timing_window: Optional[TimingDiagramWindow] = None
         self._table_window: Optional[LogTableWindow] = None
         self._map_viewer_window = None
@@ -137,6 +57,7 @@ class MainWindow(QMainWindow):
         self.file_list_widget: Optional[FileListWidget] = None
 
         self._init_ui()
+        self._bind_session_manager()
 
     def _init_ui(self):
         """Initialize the user interface."""
@@ -395,6 +316,14 @@ class MainWindow(QMainWindow):
 
         self._update_navigation_buttons(False)
 
+    def _bind_session_manager(self):
+        """Connect session manager signals to window handlers."""
+        self.session_manager.parse_started.connect(self._on_parse_started)
+        self.session_manager.parse_progress.connect(self._on_parse_progress)
+        self.session_manager.parse_failed.connect(self._on_parse_error)
+        self.session_manager.session_ready.connect(self._on_session_ready)
+        self.session_manager.session_cleared.connect(self._on_session_cleared)
+
     def _update_navigation_buttons(self, has_data: bool):
         """Enable or disable navigation buttons based on parsed data availability."""
         self.timing_button.setEnabled(has_data)
@@ -435,8 +364,10 @@ class MainWindow(QMainWindow):
         self._timing_window.set_interval_request_handler(self._open_signal_interval_for_key)
         self._timing_window.destroyed.connect(self._on_timing_window_destroyed)
 
-        if self._merged_parsed_log:
-            self._timing_window.set_data(self._merged_parsed_log, self._signal_data_list)
+        parsed_log = self.session_manager.parsed_log
+        signal_data = self.session_manager.signal_data_list
+        if parsed_log:
+            self._timing_window.set_data(parsed_log, signal_data)
         else:
             self._timing_window.clear()
 
@@ -478,8 +409,10 @@ class MainWindow(QMainWindow):
         self._table_window.set_interval_request_handler(self._open_signal_interval_for_key)
         self._table_window.destroyed.connect(self._on_table_window_destroyed)
 
-        if self._merged_parsed_log:
-            self._table_window.set_data(self._merged_parsed_log, self._signal_data_list)
+        parsed_log = self.session_manager.parsed_log
+        signal_data = self.session_manager.signal_data_list
+        if parsed_log:
+            self._table_window.set_data(parsed_log, signal_data)
         else:
             self._table_window.clear()
 
@@ -518,7 +451,7 @@ class MainWindow(QMainWindow):
                     yaml_file = candidate_yaml
 
             self._map_viewer_window = IntegratedMapViewer(
-                signal_data_list=self._signal_data_list,
+                signal_data_list=self.session_manager.signal_data_list,
                 xml_path=str(xml_file) if xml_file else None,
                 yaml_cfg=str(yaml_file) if yaml_file else None,
                 parent=self,
@@ -558,7 +491,9 @@ class MainWindow(QMainWindow):
 
     def _open_signal_interval_windows(self):
         """Open or focus signal interval windows instead of blocking dialogs."""
-        if not self._signal_data_list:
+        signal_data_list = self.session_manager.signal_data_list
+
+        if not signal_data_list:
             QMessageBox.information(
                 self,
                 "No Signals Loaded",
@@ -566,8 +501,8 @@ class MainWindow(QMainWindow):
             )
             return
 
-        if len(self._signal_data_list) == 1:
-            self._open_signal_interval_for_key(self._signal_data_list[0].key)
+        if len(signal_data_list) == 1:
+            self._open_signal_interval_for_key(signal_data_list[0].key)
             return
 
         if self._interval_selection_window is not None:
@@ -579,7 +514,7 @@ class MainWindow(QMainWindow):
             except RuntimeError:
                 self._interval_selection_window = None
 
-        selector = SignalSelectionDialog(self._signal_data_list, self)
+        selector = SignalSelectionDialog(signal_data_list, self)
         selector.setModal(False)
         selector.setWindowModality(Qt.WindowModality.NonModal)
         selector.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
@@ -606,11 +541,12 @@ class MainWindow(QMainWindow):
         if signal_data.states:
             return True
 
-        if not self._merged_parsed_log:
+        parsed_log = self.session_manager.parsed_log
+        if not parsed_log:
             return False
 
         try:
-            compute_signal_states(signal_data, self._merged_parsed_log)
+            compute_signal_states(signal_data, parsed_log)
         except Exception as exc:
             print(f"[Intervals] Failed to rebuild states for {signal_data.key}: {exc}")
             return False
@@ -619,13 +555,13 @@ class MainWindow(QMainWindow):
 
     def _pin_signal_data(self, signal_key: str):
         """Prevent a signal's states from being cleared while an interval window is open."""
-        signal_data = self._signal_data_map.get(signal_key)
+        signal_data = self.session_manager.signal_data_map.get(signal_key)
         if signal_data:
             signal_data.pinned = True
 
     def _unpin_signal_data(self, signal_key: str):
         """Allow a signal's states to be cleared when no window depends on it."""
-        signal_data = self._signal_data_map.get(signal_key)
+        signal_data = self.session_manager.signal_data_map.get(signal_key)
         if signal_data:
             signal_data.pinned = False
 
@@ -639,7 +575,7 @@ class MainWindow(QMainWindow):
         if not signal_key:
             return
 
-        signal_data = self._signal_data_map.get(signal_key)
+        signal_data = self.session_manager.signal_data_map.get(signal_key)
         if signal_data is None:
             QMessageBox.information(
                 self,
@@ -722,18 +658,7 @@ class MainWindow(QMainWindow):
         if not resolved_paths:
             return
 
-        self._current_files = resolved_paths
-
-        # Add files to file list widget
-        if self.file_list_widget:
-            for file_path in resolved_paths:
-                self.file_list_widget.add_file(file_path)
-
-        self._parse_files(resolved_paths)
-
-    def _parse_files(self, file_paths: list[str]):
-        """Parse the selected log files in a background thread."""
-        if self._parser_thread and self._parser_thread.isRunning():
+        if self.session_manager.is_parsing:
             QMessageBox.information(
                 self,
                 "Parsing In Progress",
@@ -741,11 +666,24 @@ class MainWindow(QMainWindow):
             )
             return
 
-        if self._parser_thread:
-            self._parser_thread.deleteLater()
-            self._parser_thread = None
+        # Add files to file list widget
+        if self.file_list_widget:
+            for file_path in resolved_paths:
+                self.file_list_widget.add_file(file_path)
 
-        # Show progress bar
+        if not self.session_manager.parse_files(resolved_paths):
+            QMessageBox.information(
+                self,
+                "Parsing In Progress",
+                "Please wait for the current parsing job to complete before starting a new one."
+            )
+            return
+
+    def _on_parse_started(self, file_paths: list[str]):
+        """Prepare UI for a new parse job."""
+        if not file_paths:
+            return
+
         self.progress_bar.setVisible(True)
         self.upload_widget.setEnabled(False)
         names = ", ".join(Path(path).name for path in file_paths)
@@ -756,67 +694,28 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("Parsing files... %p%")
 
-        # Clear previous results
         if self.stats_widget:
             self.stats_widget.clear()
-        self._merged_parsed_log = None
-        self._signal_data_list = []
-        self._signal_data_map = {}
-        self._file_results = {}
+
         self._update_navigation_buttons(False)
+        self._reset_child_windows(clear_only=True)
 
-        if self._timing_window is not None:
-            try:
-                self._timing_window.clear()
-            except RuntimeError:
-                self._timing_window = None
-
-        if self._table_window is not None:
-            try:
-                self._table_window.clear()
-            except RuntimeError:
-                self._table_window = None
-
-        if self._map_viewer_window is not None:
-            try:
-                self._map_viewer_window.set_signal_data([])
-            except RuntimeError:
-                self._map_viewer_window = None
-
-        # Create and start parser thread
-        self._parser_thread = ParserThread(file_paths, self)
-        self._parser_thread.finished.connect(self._on_parse_finished)
-        self._parser_thread.error.connect(self._on_parse_error)
-        self._parser_thread.progress.connect(self._on_parse_progress)
-        self._parser_thread.start()
-
-    def _on_parse_finished(
+    def _on_session_ready(
         self,
         aggregated_result: ParseResult,
         per_file_results: dict[str, ParseResult],
         signal_data_list: list[SignalData],
     ):
-        """Handle parsing completion.
-
-        Args:
-            aggregated_result: Combined ParseResult containing merged data/errors
-            per_file_results: Mapping of file path to individual ParseResult
-            signal_data_list: Pre-processed signal data ready for visualization
-        """
-        # Hide progress bar
+        """Handle completion of a parse job."""
         self.progress_bar.setVisible(False)
         self.progress_bar.reset()
         self.progress_bar.setFormat("Parsing files... %p%")
         self.upload_widget.setEnabled(True)
 
-        # Hide progress bars in file list widget
         if self.file_list_widget:
             self.file_list_widget.hide_all_progress()
 
-        self._file_results = per_file_results
-        self._merged_parsed_log = aggregated_result.data
-
-        total_files = len(self._current_files)
+        total_files = len(self.session_manager.current_files)
         successful_files = [
             path for path, result in per_file_results.items() if result.success
         ]
@@ -828,7 +727,6 @@ class MainWindow(QMainWindow):
             self.stats_widget.update_stats(aggregated_result)
 
         if not aggregated_result.success:
-            # No data parsed successfully
             primary_error = aggregated_result.errors[0] if aggregated_result.errors else None
             details = ""
             if primary_error:
@@ -843,25 +741,19 @@ class MainWindow(QMainWindow):
             self.upload_widget.set_status(
                 "📁 Drag and drop log files here\nor click to browse"
             )
-            self._signal_data_map = {}
-            self._signal_data_list = []
             self._update_navigation_buttons(False)
-            self._finalize_parser_thread()
             return
 
-        # Update UI with results
-        self._signal_data_list = signal_data_list
-        self._signal_data_map = {signal.key: signal for signal in signal_data_list}
-
+        parsed_log = aggregated_result.data
         if self._timing_window is not None:
             try:
-                self._timing_window.set_data(aggregated_result.data, signal_data_list)
+                self._timing_window.set_data(parsed_log, signal_data_list)
             except RuntimeError:
                 self._timing_window = None
 
         if self._table_window is not None:
             try:
-                self._table_window.set_data(aggregated_result.data, signal_data_list)
+                self._table_window.set_data(parsed_log, signal_data_list)
             except RuntimeError:
                 self._table_window = None
 
@@ -871,17 +763,15 @@ class MainWindow(QMainWindow):
             except RuntimeError:
                 self._map_viewer_window = None
 
-        has_data = aggregated_result.data is not None
+        has_data = parsed_log is not None
         self._update_navigation_buttons(has_data)
 
-        # Update upload widget status
         success_count = len(successful_files)
         status = f"✓ Loaded {success_count} of {total_files} file(s)"
         if aggregated_result.has_errors:
             status += f" with {aggregated_result.error_count} error(s)"
         self.upload_widget.set_status(status)
 
-        # Show success message for significant errors
         if aggregated_result.has_errors and aggregated_result.error_count > 5:
             QMessageBox.warning(
                 self,
@@ -900,25 +790,18 @@ class MainWindow(QMainWindow):
                 f"{failed_names}\n\n"
                 "See the statistics panel for error details."
             )
-        self._finalize_parser_thread()
 
     def _on_parse_error(self, error_msg: str):
-        """Handle parsing error.
-
-        Args:
-            error_msg: Error message
-        """
+        """Handle parsing errors emitted by the session manager."""
         self.progress_bar.setVisible(False)
         self.upload_widget.setEnabled(True)
-
+        self.progress_bar.reset()
+        self.progress_bar.setFormat("Parsing files... %p%")
         self._update_navigation_buttons(False)
         QMessageBox.critical(self, "Error", error_msg)
         self.upload_widget.set_status(
             "📁 Drag and drop log files here\nor click to browse"
         )
-        self._finalize_parser_thread()
-        self.progress_bar.reset()
-        self.progress_bar.setFormat("Parsing files... %p%")
 
     def _on_parse_progress(self, current: int, total: int, file_path: str):
         """Update progress bar as files are parsed."""
@@ -932,64 +815,61 @@ class MainWindow(QMainWindow):
             f"Parsing {current}/{total} file(s) - {filename}"
         )
 
-        # Update individual file progress in the file list widget
         if self.file_list_widget and file_path:
-            # Calculate progress for this file as a percentage
             file_progress = int((current / total) * 100) if total > 0 else 0
             self.file_list_widget.update_progress(file_path, file_progress)
 
-    def _on_file_removed_from_list(self, file_path: str):
-        """Handle file removal from file list widget (trash button clicked)."""
-        if file_path in self._current_files:
-            self._current_files.remove(file_path)
-
-    def _on_clear_file(self):
-        """Handle Clear File button click - reset everything."""
-        # Clear file list
-        if self.file_list_widget:
-            self.file_list_widget.clear_all()
-
-        # Clear current files
-        self._current_files = []
-
-        # Clear stats
-        if self.stats_widget:
-            self.stats_widget.clear()
-
-        # Clear parsed data
-        self._merged_parsed_log = None
-        self._signal_data_list = []
-        self._signal_data_map = {}
-        self._file_results = {}
-
-        # Reset upload widget
+    def _on_session_cleared(self):
+        """Reset UI when the active session is cleared."""
+        self.progress_bar.setVisible(False)
+        self.progress_bar.reset()
+        self.progress_bar.setFormat("Parsing files... %p%")
+        self.upload_widget.setEnabled(True)
         self.upload_widget.set_status(
             "📁 Drag and drop log files here\nor click to browse"
         )
 
-        # Close all sub-windows
+        if self.stats_widget:
+            self.stats_widget.clear()
+
+        if self.file_list_widget:
+            self.file_list_widget.hide_all_progress()
+
+        self._reset_child_windows(clear_only=False)
+        self._update_navigation_buttons(False)
+
+    def _reset_child_windows(self, *, clear_only: bool):
+        """Clear or close auxiliary windows depending on session state."""
         if self._timing_window is not None:
             try:
-                self._timing_window.close()
-                self._timing_window = None
+                if clear_only:
+                    self._timing_window.clear()
+                else:
+                    self._timing_window.close()
+                    self._timing_window = None
             except RuntimeError:
                 self._timing_window = None
 
         if self._table_window is not None:
             try:
-                self._table_window.close()
-                self._table_window = None
+                if clear_only:
+                    self._table_window.clear()
+                else:
+                    self._table_window.close()
+                    self._table_window = None
             except RuntimeError:
                 self._table_window = None
 
         if self._map_viewer_window is not None:
             try:
-                self._map_viewer_window.close()
-                self._map_viewer_window = None
+                if clear_only:
+                    self._map_viewer_window.set_signal_data([])
+                else:
+                    self._map_viewer_window.close()
+                    self._map_viewer_window = None
             except RuntimeError:
                 self._map_viewer_window = None
 
-        # Close all interval windows
         for window in list(self._interval_windows.values()):
             try:
                 window.close()
@@ -997,13 +877,19 @@ class MainWindow(QMainWindow):
                 pass
         self._interval_windows.clear()
 
-        # Update buttons
-        self._update_navigation_buttons(False)
+    def _on_file_removed_from_list(self, file_path: str):
+        """Handle file removal from file list widget (trash button clicked)."""
+        self.session_manager.remove_file(file_path)
 
-        # Stop parsing if in progress
-        if self._parser_thread and self._parser_thread.isRunning():
-            self._parser_thread.quit()
-            self._parser_thread.wait()
+    def _on_clear_file(self):
+        """Handle Clear File button click - reset everything."""
+        if self.file_list_widget:
+            self.file_list_widget.clear_all()
+
+        if self.stats_widget:
+            self.stats_widget.clear()
+
+        self.session_manager.clear_session()
 
     def resizeEvent(self, event: QResizeEvent):
         """Log resize information (useful for debugging Wayland sizing)."""
@@ -1012,12 +898,3 @@ class MainWindow(QMainWindow):
             handle = self.windowHandle()
             handle_size = handle.size() if handle else None
             print(f"[MainWindow] resizeEvent old={event.oldSize()}, new={event.size()}, handle_size={handle_size}")
-
-    def _finalize_parser_thread(self):
-        """Release references to the parser thread."""
-        if self._parser_thread:
-            self._parser_thread.deleteLater()
-            self._parser_thread = None
-
-
-atexit.register(ParserThread.shutdown_executor)

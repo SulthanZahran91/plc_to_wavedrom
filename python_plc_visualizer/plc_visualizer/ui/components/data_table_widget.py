@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from plc_visualizer.models import ParsedLog, LogEntry
-from .CopyPasteTableView import CopyPasteTableView
+from .copy_paste_table_view import CopyPasteTableView
 
 
 class LogDataModel(QAbstractTableModel):
