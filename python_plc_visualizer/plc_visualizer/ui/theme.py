@@ -154,7 +154,7 @@ def create_header_bar(
 
     if extra_widgets:
         for widget in extra_widgets:
-            layout.addWidget(widget, stretch=0, alignment=0)
+            layout.addWidget(widget, stretch=0)
 
     return header
 

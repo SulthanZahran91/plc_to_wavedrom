@@ -1,6 +1,7 @@
 # map_viewer/renderer.py
+import logging
 import math
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QPen, QBrush, QFont, QPainterPath, QPolygonF
@@ -10,6 +11,8 @@ from .config import (
     RENDER_AS_TEXT_TYPES, RENDER_AS_ARROW_TYPES, TYPE_COLOR_MAPPING,
     TYPE_ZINDEX_MAPPING, FORECOLOR_MAPPING
 )
+
+logger = logging.getLogger(__name__)
 
 def _parse_flow_direction(flow_direction_str: Optional[str]) -> tuple[float, str]:
     if not flow_direction_str or not flow_direction_str.startswith("Angle_"):
@@ -67,6 +70,8 @@ class MapRenderer(QGraphicsView):
         self._items_by_unit: Dict[str, list] = {}
         # index: UnitId -> text overlay item (if any)
         self._text_overlays_by_unit: Dict[str, Any] = {}
+        # object bounds cache for alignment debugging
+        self._object_bounds: Dict[str, Dict[str, Any]] = {}
 
     # ---------- Public API ----------
     def set_objects(self, objects: Dict[str, Dict[str, Any]]) -> None:
@@ -74,6 +79,7 @@ class MapRenderer(QGraphicsView):
         self.scene.clear()
         self._items_by_unit.clear()
         self._text_overlays_by_unit.clear()
+        self._object_bounds.clear()
 
         for name, data in objects.items():
             size_str = data.get("Size")
@@ -110,6 +116,7 @@ class MapRenderer(QGraphicsView):
                     item.setData(0, arrow_data)
                     item.setFlag(item.GraphicsItemFlag.ItemIsSelectable)
                     self._index_unit_item(unit_id, item)
+                    self._log_arrow_alignment(name, x, y, width, height, arrow_data)
 
             elif obj_type in RENDER_AS_TEXT_TYPES:
                 txt = (text_content or "").strip()
@@ -140,6 +147,11 @@ class MapRenderer(QGraphicsView):
                 rect.setData(0, payload)
                 rect.setFlag(rect.GraphicsItemFlag.ItemIsSelectable)
                 self._index_unit_item(unit_id, rect)
+                self._object_bounds[name] = {
+                    "rect": (x, y, width, height),
+                    "unit_id": unit_id,
+                    "type": obj_type
+                }
 
         self.fitInView(self.scene.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
@@ -273,6 +285,88 @@ class MapRenderer(QGraphicsView):
         arrow_item.setData(0, data)
         arrow_item.setFlag(arrow_item.GraphicsItemFlag.ItemIsSelectable)
         return arrow_item
+
+    def _closest_rect(self, point: QPointF) -> Optional[Tuple[str, Dict[str, Any], float, float]]:
+        best: Optional[Tuple[str, Dict[str, Any], float, float, float]] = None
+        px, py = point.x(), point.y()
+        for name, info in self._object_bounds.items():
+            bx, by, bw, bh = info["rect"]
+            if bw <= 0 or bh <= 0:
+                continue
+
+            gap_x = 0.0
+            if px < bx:
+                gap_x = bx - px
+            elif px > bx + bw:
+                gap_x = px - (bx + bw)
+
+            gap_y = 0.0
+            if py < by:
+                gap_y = by - py
+            elif py > by + bh:
+                gap_y = py - (by + bh)
+
+            metric = max(gap_x, gap_y)
+            if best is None or metric < best[4] or (
+                metric == best[4] and (gap_x + gap_y) < (best[2] + best[3])
+            ):
+                best = (name, info, gap_x, gap_y, metric)
+
+        if best is None:
+            return None
+        name, info, gap_x, gap_y, _ = best
+        return name, info, gap_x, gap_y
+
+    def _format_point_info(self, info: Optional[Tuple[str, Dict[str, Any], float, float]]) -> str:
+        if not info:
+            return "None"
+        name, rect_info, gap_x, gap_y = info
+        bx, by, bw, bh = rect_info["rect"]
+        unit = rect_info.get("unit_id") or "—"
+        inside = gap_x == 0.0 and gap_y == 0.0
+        return (
+            f"{name}(unit={unit}) rect=({bx}, {by}, {bw}, {bh}) "
+            f"gap_x={gap_x:.1f} gap_y={gap_y:.1f} inside={inside}"
+        )
+
+    def _log_arrow_alignment(self, name: str, x: float, y: float, width: float,
+                             height: float, data: Dict[str, Any]) -> None:
+        flow_direction = data.get("FlowDirection", "Angle_0") or "Angle_0"
+        angle_rad, axis = _parse_flow_direction(flow_direction)
+        cx = x + width / 2.0
+        cy = y + height / 2.0
+
+        if axis == "right":
+            start = QPointF(x, cy)
+            end = QPointF(x + width, cy)
+        elif axis == "left":
+            start = QPointF(x + width, cy)
+            end = QPointF(x, cy)
+        elif axis == "down":
+            start = QPointF(cx, y)
+            end = QPointF(cx, y + height)
+        elif axis == "up":
+            start = QPointF(cx, y + height)
+            end = QPointF(cx, y)
+        else:
+            dx = math.cos(angle_rad)
+            dy = math.sin(angle_rad)
+            L = math.hypot(width, height)
+            center = QPointF(cx, cy)
+            start = QPointF(center.x() - dx * L, center.y() - dy * L)
+            end = QPointF(center.x() + dx * L, center.y() + dy * L)
+
+        tail = self._closest_rect(start)
+        head = self._closest_rect(end)
+        logger.info(
+            "Arrow %s axis=%s start=(%.1f, %.1f) end=(%.1f, %.1f) tail=%s head=%s",
+            name,
+            axis,
+            start.x(), start.y(),
+            end.x(), end.y(),
+            self._format_point_info(tail),
+            self._format_point_info(head)
+        )
 
     # ---------- Interaction (trimmed) ----------
     def mousePressEvent(self, event):

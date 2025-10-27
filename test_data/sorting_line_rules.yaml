@@ -1,0 +1,239 @@
+# sorting_line_rules.yaml
+# Configuration for device-to-unit mapping and signal-based color rules
+# For the sorting line test scenario
+
+default_color: "#D3D3D3"  # Light gray - default/neutral state
+
+# Device ID to UnitID mapping
+# Maps device_id patterns (with wildcards) to UnitId values from the XML
+device_to_unit:
+  # Conveyor belts - extract unit ID before @ symbol
+  - pattern: "B1ACNV*@*"
+    unit_id: "*"  # Use the prefix before @ as unit_id
+  # Diverters
+  - pattern: "B1ACDV*@*"
+    unit_id: "*"
+  # Ports
+  - pattern: "B1ACPT*@*"
+    unit_id: "*"
+
+# Color rules based on signal values
+# Each rule specifies: signal name, operator, value, resulting color, and priority
+# Higher priority rules are evaluated first
+#
+# Text overlay feature:
+#   - text: single character to display (e.g., 'X' to cross out)
+#   - text_color: color for the text overlay
+#   - bg_color: background color (if not specified, uses 'color')
+
+rules:
+  # ============================================
+  # STATUS SIGNAL RULES (Highest Priority)
+  # ============================================
+
+  # Running state - Bright green
+  - signal: "Status"
+    op: "=="
+    value: "Running"
+    color: "#00C853"  # Material Green 600
+    priority: 100
+
+  # Error status with red X overlay - CRITICAL
+  - signal: "Status"
+    op: "=="
+    value: "Error"
+    bg_color: "#FFCDD2"  # Light red background
+    text: "X"
+    text_color: "#C62828"  # Dark red X to cross out
+    priority: 100
+
+  # Stopped status with pause symbol - WARNING
+  - signal: "Status"
+    op: "=="
+    value: "Stopped"
+    bg_color: "#FFF9C4"  # Light yellow background
+    text: "‖"  # Pause symbol
+    text_color: "#F57C00"  # Dark orange
+    priority: 100
+
+  # Idle state - Blue-gray
+  - signal: "Status"
+    op: "=="
+    value: "Idle"
+    color: "#B0BEC5"  # Blue Gray 300
+    priority: 100
+
+  # ============================================
+  # SIGNAL A - PACKAGE DETECTION (Medium-High Priority)
+  # ============================================
+  # A=0: No package
+  # A=1: Single package detected
+  # A=2: Two packages (racing/congestion)
+  # A=3: Three packages (severe congestion)
+
+  - signal: "A"
+    op: "=="
+    value: 0
+    color: "#ECEFF1"  # Very light gray - clear
+    priority: 10
+
+  - signal: "A"
+    op: "=="
+    value: 1
+    color: "#FFEB3B"  # Yellow - single package
+    priority: 10
+
+  - signal: "A"
+    op: "=="
+    value: 2
+    color: "#4CAF50"  # Green - two packages (racing condition)
+    priority: 10
+
+  - signal: "A"
+    op: "=="
+    value: 3
+    color: "#2196F3"  # Blue - three packages (severe congestion)
+    priority: 10
+
+  # ============================================
+  # SIGNAL B - PACKAGE COUNTER/ID (Medium Priority)
+  # ============================================
+  # Shows package ID or counter value
+  # Higher values = more packages processed
+
+  # Critical high count
+  - signal: "B"
+    op: ">"
+    value: 60
+    color: "#B71C1C"  # Dark red - very high
+    priority: 50
+
+  - signal: "B"
+    op: ">"
+    value: 50
+    color: "#D32F2F"  # Red - high
+    priority: 45
+
+  - signal: "B"
+    op: ">"
+    value: 40
+    color: "#E64A19"  # Deep orange - medium-high
+    priority: 40
+
+  - signal: "B"
+    op: ">"
+    value: 30
+    color: "#F57C00"  # Orange - medium
+    priority: 35
+
+  - signal: "B"
+    op: ">"
+    value: 20
+    color: "#FF9800"  # Light orange - low-medium
+    priority: 30
+
+  - signal: "B"
+    op: ">"
+    value: 10
+    color: "#FFC107"  # Amber - low
+    priority: 25
+
+  - signal: "B"
+    op: ">"
+    value: 0
+    color: "#FFD54F"  # Light amber - minimal
+    priority: 20
+
+  # ============================================
+  # SPEED SIGNAL RULES (Low-Medium Priority)
+  # ============================================
+  # Speed in m/s - shows conveyor belt speed
+
+  # Maximum speed - Dark blue
+  - signal: "Speed"
+    op: ">="
+    value: 1.0
+    color: "#0D47A1"  # Dark blue - max speed
+    priority: 20
+
+  # High speed - Medium blue
+  - signal: "Speed"
+    op: ">="
+    value: 0.8
+    color: "#1976D2"  # Blue 700 - high speed
+    priority: 18
+
+  # Medium-high speed
+  - signal: "Speed"
+    op: ">="
+    value: 0.6
+    color: "#1E88E5"  # Blue 600 - medium-high
+    priority: 16
+
+  # Medium speed
+  - signal: "Speed"
+    op: ">="
+    value: 0.5
+    color: "#42A5F5"  # Blue 400 - medium
+    priority: 14
+
+  # Low speed
+  - signal: "Speed"
+    op: ">"
+    value: 0.0
+    color: "#90CAF9"  # Light blue - slow
+    priority: 12
+
+  # Stopped (speed = 0)
+  - signal: "Speed"
+    op: "=="
+    value: 0.0
+    color: "#CFD8DC"  # Very light gray - stopped
+    priority: 10
+
+  # ============================================
+  # LOADCOUNT SIGNAL - PORT THROUGHPUT (Low Priority)
+  # ============================================
+  # Shows number of packages that passed through exit port
+
+  # High throughput
+  - signal: "LoadCount"
+    op: ">="
+    value: 5
+    color: "#4CAF50"  # Green - good throughput
+    priority: 8
+
+  # Medium throughput
+  - signal: "LoadCount"
+    op: ">="
+    value: 3
+    color: "#66BB6A"  # Light green
+    priority: 6
+
+  # Low throughput
+  - signal: "LoadCount"
+    op: ">="
+    value: 1
+    color: "#81C784"  # Very light green
+    priority: 4
+
+  # No packages yet
+  - signal: "LoadCount"
+    op: "=="
+    value: 0
+    color: "#E0E0E0"  # Light gray - waiting
+    priority: 2
+
+# ============================================
+# PRIORITY EXPLANATION
+# ============================================
+# Priority determines which rule wins when multiple rules match:
+# - Status rules: 100 (always show system state if available)
+# - B counter: 20-50 (high values indicate load/issues)
+# - Speed: 10-20 (shows operational velocity)
+# - A detection: 10 (shows package presence)
+# - LoadCount: 2-8 (shows throughput statistics)
+#
+# This ensures critical states (Error, Stopped) are always visible,
+# followed by load indicators (high B values), then operational
+# metrics (Speed, A), and finally statistics (LoadCount).

@@ -1,0 +1,364 @@
+<?xml version="1.0" ?>
+<ConveyorMap version="1.0">
+  <!-- MAIN INFEED LINE (Horizontal) -->
+  <Object name="Belt_01" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetBelt, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>120, 40</Size>
+    <Location>20, 100</Location>
+    <UnitId>B1ACNV13301-104</UnitId>
+    <Text>Infeed 1</Text>
+  </Object>
+  <Object name="Label_01" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>120, 20</Size>
+    <Location>20, 78</Location>
+    <Text>Infeed 1</Text>
+    <UnitId>B1ACNV13301-104</UnitId>
+  </Object>
+
+  <Object name="Belt_02" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetBelt, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>120, 40</Size>
+    <Location>160, 100</Location>
+    <UnitId>B1ACNV13302-104</UnitId>
+    <Text>Infeed 2</Text>
+  </Object>
+  <Object name="Label_02" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>120, 20</Size>
+    <Location>160, 78</Location>
+    <Text>Infeed 2</Text>
+    <UnitId>B1ACNV13302-104</UnitId>
+  </Object>
+
+  <Object name="Belt_03" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetBelt, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>120, 40</Size>
+    <Location>300, 100</Location>
+    <UnitId>B1ACNV13303-104</UnitId>
+    <Text>Merge Zone</Text>
+  </Object>
+  <Object name="Label_03" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>120, 20</Size>
+    <Location>300, 78</Location>
+    <Text>Merge Zone</Text>
+    <UnitId>B1ACNV13303-104</UnitId>
+  </Object>
+
+  <Object name="Belt_04" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetBelt, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>120, 40</Size>
+    <Location>440, 100</Location>
+    <UnitId>B1ACNV13304-104</UnitId>
+    <Text>Pre-Sort</Text>
+  </Object>
+  <Object name="Label_04" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>120, 20</Size>
+    <Location>440, 78</Location>
+    <Text>Pre-Sort</Text>
+    <UnitId>B1ACNV13304-104</UnitId>
+  </Object>
+
+  <!-- PRIMARY SORT DIVERTER -->
+  <Object name="Diverter_01" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetDiverter, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>70, 70</Size>
+    <Location>600, 95</Location>
+    <UnitId>B1ACDV14001-104</UnitId>
+  </Object>
+  <Object name="DiverterLabel_01" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>70, 20</Size>
+    <Location>600, 73</Location>
+    <Text>Sort 1</Text>
+    <UnitId>B1ACDV14001-104</UnitId>
+  </Object>
+
+  <!-- NORMAL PRIORITY PATH (Lower) -->
+  <Object name="Belt_05" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetBelt, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>100, 40</Size>
+    <Location>650, 190</Location>
+    <UnitId>B1ACNV13305-104</UnitId>
+    <Text>Normal</Text>
+  </Object>
+  <Object name="Label_05" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>100, 20</Size>
+    <Location>650, 168</Location>
+    <Text>Normal Route</Text>
+    <UnitId>B1ACNV13305-104</UnitId>
+  </Object>
+
+  <!-- SECONDARY SORT DIVERTER (Normal vs Reject) -->
+  <Object name="Diverter_02" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetDiverter, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>70, 70</Size>
+    <Location>720, 270</Location>
+    <UnitId>B1ACDV14002-104</UnitId>
+  </Object>
+  <Object name="DiverterLabel_02" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>70, 20</Size>
+    <Location>720, 248</Location>
+    <Text>QC Check</Text>
+    <UnitId>B1ACDV14002-104</UnitId>
+  </Object>
+
+  <Object name="Belt_06" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetBelt, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublickelToken=null">
+    <Size>100, 40</Size>
+    <Location>630, 370</Location>
+    <UnitId>B1ACNV13306-104</UnitId>
+    <Text>Accept</Text>
+  </Object>
+  <Object name="Label_06" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>100, 20</Size>
+    <Location>630, 348</Location>
+    <Text>Accept Line</Text>
+    <UnitId>B1ACNV13306-104</UnitId>
+  </Object>
+
+  <!-- NORMAL EXIT PORT -->
+  <Object name="Port_01" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetConveyorPort, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>60, 60</Size>
+    <Location>660, 460</Location>
+    <UnitId>B1ACPT15001-104</UnitId>
+  </Object>
+  <Object name="PortLabel_01" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>60, 20</Size>
+    <Location>660, 438</Location>
+    <Text>Normal</Text>
+    <UnitId>B1ACPT15001-104</UnitId>
+  </Object>
+
+  <!-- REJECT PATH -->
+  <Object name="Belt_08" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetBelt, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>100, 40</Size>
+    <Location>840, 370</Location>
+    <UnitId>B1ACNV13308-104</UnitId>
+    <Text>Reject</Text>
+  </Object>
+  <Object name="Label_08" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>100, 20</Size>
+    <Location>840, 348</Location>
+    <Text>Reject Line</Text>
+    <UnitId>B1ACNV13308-104</UnitId>
+  </Object>
+
+  <Object name="Diverter_03" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetDiverter, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>70, 70</Size>
+    <Location>850, 450</Location>
+    <UnitId>B1ACDV14003-104</UnitId>
+  </Object>
+  <Object name="DiverterLabel_03" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>70, 20</Size>
+    <Location>850, 428</Location>
+    <Text>Reject Rte</Text>
+    <UnitId>B1ACDV14003-104</UnitId>
+  </Object>
+
+  <!-- REJECT EXIT PORT -->
+  <Object name="Port_03" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetConveyorPort, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>60, 60</Size>
+    <Location>880, 530</Location>
+    <UnitId>B1ACPT15003-104</UnitId>
+  </Object>
+  <Object name="PortLabel_03" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>60, 20</Size>
+    <Location>880, 508</Location>
+    <Text>Reject</Text>
+    <UnitId>B1ACPT15003-104</UnitId>
+  </Object>
+
+  <!-- HIGH PRIORITY PATH (Upper) -->
+  <Object name="Belt_07" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetBelt, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>120, 40</Size>
+    <Location>710, 20</Location>
+    <UnitId>B1ACNV13307-104</UnitId>
+    <Text>Priority</Text>
+  </Object>
+  <Object name="Label_07" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>120, 20</Size>
+    <Location>710, -2</Location>
+    <Text>High Priority</Text>
+    <UnitId>B1ACNV13307-104</UnitId>
+  </Object>
+
+  <Object name="Belt_09" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetBelt, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>100, 40</Size>
+    <Location>870, 20</Location>
+    <UnitId>B1ACNV13309-104</UnitId>
+    <Text>Express</Text>
+  </Object>
+  <Object name="Label_09" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>100, 20</Size>
+    <Location>870, -2</Location>
+    <Text>Express Out</Text>
+    <UnitId>B1ACNV13309-104</UnitId>
+  </Object>
+
+  <!-- HIGH PRIORITY EXIT PORT -->
+  <Object name="Port_02" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetConveyorPort, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>60, 60</Size>
+    <Location>1010, 15</Location>
+    <UnitId>B1ACPT15002-104</UnitId>
+  </Object>
+  <Object name="PortLabel_02" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>60, 20</Size>
+    <Location>1010, -7</Location>
+    <Text>Priority</Text>
+    <UnitId>B1ACPT15002-104</UnitId>
+  </Object>
+
+  <!-- BUFFER ZONE (Additional belt for congestion simulation) -->
+  <Object name="Belt_10" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetBelt, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>120, 40</Size>
+    <Location>20, 190</Location>
+    <UnitId>B1ACNV13310-104</UnitId>
+    <Text>Buffer</Text>
+  </Object>
+  <Object name="Label_10" type="System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+    <Size>120, 20</Size>
+    <Location>20, 168</Location>
+    <Text>Buffer Zone</Text>
+    <UnitId>B1ACNV13310-104</UnitId>
+  </Object>
+
+  <!-- FLOW ARROWS -->
+  <!-- Main line arrows -->
+  <Object name="Arrow_01" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>30, 20</Size>
+    <Location>135, 110</Location>
+    <FlowDirection>Angle_90</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <Object name="Arrow_02" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>30, 20</Size>
+    <Location>275, 110</Location>
+    <FlowDirection>Angle_90</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <Object name="Arrow_03" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>30, 20</Size>
+    <Location>415, 110</Location>
+    <FlowDirection>Angle_90</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <Object name="Arrow_04" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>50, 20</Size>
+    <Location>555, 120</Location>
+    <FlowDirection>Angle_90</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <!-- Priority path arrows -->
+  <Object name="Arrow_05" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>50, 20</Size>
+    <Location>825, 30</Location>
+    <FlowDirection>Angle_90</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <Object name="Arrow_06" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>55, 20</Size>
+    <Location>965, 35</Location>
+    <FlowDirection>Angle_90</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <!-- Normal path arrows -->
+  <Object name="Arrow_07" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>20, 90</Size>
+    <Location>725, 210</Location>
+    <FlowDirection>Angle_180</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <Object name="Arrow_08" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>20, 85</Size>
+    <Location>715, 320</Location>
+    <FlowDirection>Angle_180</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <!-- Reject path arrows -->
+  <Object name="Arrow_09" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>20, 90</Size>
+    <Location>870, 380</Location>
+    <FlowDirection>Angle_180</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <Object name="Arrow_10" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>20, 90</Size>
+    <Location>885, 500</Location>
+    <FlowDirection>Angle_180</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <!-- Vertical connection arrows (diverter splits) -->
+  <Object name="Arrow_11" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>60, 60</Size>
+    <Location>672, 54</Location>
+    <FlowDirection>Angle_56</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <Object name="Arrow_12" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>20, 80</Size>
+    <Location>650, 150</Location>
+    <FlowDirection>Angle_180</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <Object name="Arrow_13" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>18, 85</Size>
+    <Location>716, 320</Location>
+    <FlowDirection>Angle_180</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <Object name="Arrow_14" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>64, 48</Size>
+    <Location>791, 323</Location>
+    <FlowDirection>Angle_122</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <Object name="Arrow_15" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>20, 90</Size>
+    <Location>670, 400</Location>
+    <FlowDirection>Angle_180</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+
+  <Object name="Arrow_16" type="SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null">
+    <Size>20, 170</Size>
+    <Location>900, 390</Location>
+    <FlowDirection>Angle_180</FlowDirection>
+    <LineThick>3</LineThick>
+    <EndCap>ArrowAnchor</EndCap>
+    <ForeColor>HotTrack</ForeColor>
+  </Object>
+</ConveyorMap>
