@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Callable, Optional
+from bisect import bisect_left
+from datetime import datetime
 
 from PySide6.QtWidgets import (
     QWidget,
@@ -15,9 +17,11 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
 )
+from PySide6.QtCore import Qt
 
 from plc_visualizer.models import ParsedLog
 from plc_visualizer.utils import SignalData
+from plc_visualizer.app.session_manager import SessionManager
 from plc_visualizer.validation import SignalValidator, ValidationViolation
 from ..components.signal_filter_widget import SignalFilterWidget
 from ..components.data_table_widget import DataTableWidget
@@ -37,7 +41,7 @@ class LogTableView(QWidget):
 
     VIEW_TYPE = "log_table"
 
-    def __init__(self, parent=None):
+    def __init__(self, session_manager: SessionManager, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Log Table")
         self._parsed_log: Optional[ParsedLog] = None
@@ -47,7 +51,9 @@ class LogTableView(QWidget):
         self._validator: Optional[SignalValidator] = None
         self._violations: dict[str, list[ValidationViolation]] = {}
         self._loaded_rules_path: Optional[Path] = None
+        self._session_manager = session_manager
         self._init_ui()
+        self._connect_session_signals()
 
     @property
     def view_type(self) -> str:
@@ -108,6 +114,43 @@ class LogTableView(QWidget):
             return entry.timestamp
         
         return None
+    
+    def _connect_session_signals(self):
+        """Connect session manager signals."""
+        self._session_manager.sync_requested.connect(self._on_sync_requested)
+    
+    def _on_sync_requested(self, target_time: datetime):
+        """Handle sync request from session manager."""
+        if not self._parsed_log or not self.data_table or not self.data_table.table_view:
+            return
+        
+        model = self.data_table.model
+        if not hasattr(model, '_entries') or not model._entries:
+            return
+        
+        entries = model._entries
+        
+        # Binary search for first entry at or after target_time
+        # Entries should be sorted by timestamp
+        idx = bisect_left([e.timestamp for e in entries], target_time)
+        
+        # If we're past the end, go to the last entry
+        if idx >= len(entries):
+            idx = len(entries) - 1
+        
+        # Select and scroll to the row
+        table_view = self.data_table.table_view
+        selection_model = table_view.selectionModel()
+        
+        # Create index for the first column of the target row
+        model_index = model.index(idx, 0)
+        
+        # Clear current selection and select the target row
+        selection_model.clearSelection()
+        selection_model.select(model_index, selection_model.SelectionFlag.Select | selection_model.SelectionFlag.Rows)
+        
+        # Scroll to the selected row (position it in the center if possible)
+        table_view.scrollTo(model_index, table_view.ScrollHint.PositionAtCenter)
 
     def load_validation_rules(self, rules_path: str | Path = None) -> bool:
         """Load validation rules from a YAML file.

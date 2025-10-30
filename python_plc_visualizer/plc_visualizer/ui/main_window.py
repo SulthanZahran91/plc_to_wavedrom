@@ -268,7 +268,7 @@ class MainWindow(QMainWindow):
         if not self._split_pane_manager:
             return
         
-        view = TimingDiagramView(self.session_manager.viewport_state, self)
+        view = TimingDiagramView(self.session_manager.viewport_state, self.session_manager, self)
         view.set_interval_request_handler(self._open_signal_interval_for_key)
         
         # Set data if available
@@ -284,7 +284,7 @@ class MainWindow(QMainWindow):
         if not self._split_pane_manager:
             return
         
-        view = LogTableView(self)
+        view = LogTableView(self.session_manager, self)
         view.set_interval_request_handler(self._open_signal_interval_for_key)
         
         # Set data if available
@@ -310,7 +310,7 @@ class MainWindow(QMainWindow):
         xml_path = str(xml_file) if xml_file.exists() else None
         yaml_path = str(yaml_file) if yaml_file.exists() else None
         
-        view = MapViewerView(signal_data, xml_path, yaml_path, self)
+        view = MapViewerView(self.session_manager, signal_data, xml_path, yaml_path, self)
         self._split_pane_manager.add_view(view, "Map Viewer")
     
     def _on_view_closed(self, view: QWidget):

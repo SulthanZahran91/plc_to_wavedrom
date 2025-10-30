@@ -15,6 +15,7 @@ from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QKeyEvent
 
 from plc_visualizer.utils import SignalData
+from plc_visualizer.app.session_manager import SessionManager
 from tools.map_viewer import MapParser, MapRenderer, MediaControls
 from tools.map_viewer.state_model import UnitStateModel, SignalEvent
 from tools.map_viewer.config_loader import load_mapping_and_policy
@@ -33,6 +34,7 @@ class MapViewerView(QWidget):
 
     def __init__(
         self,
+        session_manager: SessionManager,
         signal_data_list: Optional[List[SignalData]] = None,
         xml_path: Optional[str] = None,
         yaml_cfg: Optional[str] = None,
@@ -41,6 +43,7 @@ class MapViewerView(QWidget):
         """Initialize the map viewer view.
 
         Args:
+            session_manager: Session manager for signal coordination
             signal_data_list: List of SignalData from the main window
             xml_path: Path to the XML map file
             yaml_cfg: Path to the YAML configuration file
@@ -48,6 +51,9 @@ class MapViewerView(QWidget):
         """
         super().__init__(parent)
         self.setWindowTitle("PLC Map Viewer")
+
+        # Session manager
+        self._session_manager = session_manager
 
         # Signal data from main window
         self._signal_data_list: List[SignalData] = signal_data_list or []
@@ -86,6 +92,13 @@ class MapViewerView(QWidget):
         # Calculate time range for media controls (after UI is built)
         if self._signal_data_list:
             self._update_time_range()
+        
+        # Connect to session manager signals
+        self._connect_session_signals()
+    
+    def _connect_session_signals(self):
+        """Connect session manager signals."""
+        self._session_manager.sync_requested.connect(self._on_sync_requested)
 
     def _try_load_defaults(self) -> bool:
         """Try to load default map files."""
@@ -242,6 +255,15 @@ class MapViewerView(QWidget):
     def get_current_time(self):
         """Get the current playback time position."""
         return self._current_time
+    
+    def _on_sync_requested(self, target_time: datetime):
+        """Handle sync request from session manager."""
+        # Pause playback if currently playing
+        if self._is_playing:
+            self._pause()
+        
+        # Jump to the target time
+        self.update_time_position(target_time)
     
     def keyPressEvent(self, event: QKeyEvent):
         """Handle keyboard shortcuts for navigation."""

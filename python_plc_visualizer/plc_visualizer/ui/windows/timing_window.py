@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from plc_visualizer.models import ParsedLog
 from plc_visualizer.utils import SignalData, ViewportState
+from plc_visualizer.app.session_manager import SessionManager
 from ..components.waveform.waveform_view import WaveformView
 from ..components.waveform.zoom_controls import ZoomControls
 from ..components.waveform.pan_controls import PanControls
@@ -29,7 +30,7 @@ class TimingDiagramView(QWidget):
 
     VIEW_TYPE = "timing_diagram"
 
-    def __init__(self, viewport_state: ViewportState, parent=None):
+    def __init__(self, viewport_state: ViewportState, session_manager: SessionManager, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Timing Diagram")
         self._parsed_log: Optional[ParsedLog] = None
@@ -38,8 +39,10 @@ class TimingDiagramView(QWidget):
         self._interval_request_handler: Optional[Callable[[str], None]] = None
 
         self._viewport_state = viewport_state
+        self._session_manager = session_manager
         self._init_ui()
         self._connect_viewport_signals()
+        self._connect_session_signals()
         self._update_controls_enabled(False)
 
     @property
@@ -265,6 +268,10 @@ class TimingDiagramView(QWidget):
     def _connect_viewport_signals(self):
         self._viewport_state.duration_changed.connect(self._on_viewport_duration_changed)
         self._viewport_state.time_range_changed.connect(self._on_viewport_time_range_changed)
+    
+    def _connect_session_signals(self):
+        """Connect session manager signals."""
+        self._session_manager.sync_requested.connect(self._on_sync_requested)
 
     def _update_controls_enabled(self, enabled: bool):
         self.zoom_controls.set_enabled(enabled)
@@ -299,6 +306,10 @@ class TimingDiagramView(QWidget):
             self._viewport_state.pan(delta)
 
     def _on_jump_to_time(self, target_time):
+        self._viewport_state.jump_to_time(target_time)
+    
+    def _on_sync_requested(self, target_time):
+        """Handle sync request from session manager."""
         self._viewport_state.jump_to_time(target_time)
 
     def _on_scroll_changed(self, position: float):
