@@ -336,19 +336,35 @@ class MainWindow(QMainWindow):
         
         # Get current time from active view
         current_time = None
-        if isinstance(active_view, TimingDiagramView):
-            visible_range = active_view.viewport_state.visible_time_range
-            if visible_range:
-                current_time = visible_range[0]  # Use start of visible range
+        
+        # Try to get current time from any view type that supports it
+        if hasattr(active_view, 'get_current_time'):
+            current_time = active_view.get_current_time()
         
         if current_time:
             self.session_manager.sync_all_views(current_time)
         else:
-            QMessageBox.information(
-                self,
-                "No Time Available",
-                "The active view does not have a time position to sync."
-            )
+            # Provide more helpful messages based on view type
+            if isinstance(active_view, LogTableView):
+                QMessageBox.information(
+                    self,
+                    "No Row Selected",
+                    "Please select a row in the log table first.\n\n"
+                    "The selected row's timestamp will be used to sync all views."
+                )
+            elif isinstance(active_view, MapViewerView):
+                QMessageBox.information(
+                    self,
+                    "No Time Position",
+                    "The map viewer doesn't have a time position yet.\n\n"
+                    "Load signal data to enable time-based synchronization."
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    "No Time Available",
+                    "The active view does not have a time position to sync."
+                )
     
     def _add_bookmark_at_current_time(self):
         """Add a bookmark at the current time position."""

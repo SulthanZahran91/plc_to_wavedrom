@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import Callable, Optional
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QWidget,
     QSplitter,
@@ -55,6 +56,83 @@ class TimingDiagramView(QWidget):
     def set_interval_request_handler(self, handler: Callable[[str], None]):
         """Forward interval plotting requests to the provided handler."""
         self._interval_request_handler = handler
+    
+    def get_current_time(self):
+        """Get the current time position from the viewport."""
+        if not self._viewport_state:
+            return None
+        visible_range = self._viewport_state.visible_time_range
+        if visible_range:
+            return visible_range[0]  # Use start of visible range
+        return None
+    
+    def keyPressEvent(self, event: QKeyEvent):
+        """Handle keyboard shortcuts for navigation."""
+        key = event.key()
+        modifiers = event.modifiers()
+        
+        # No modifiers required for these shortcuts
+        if modifiers == Qt.NoModifier:
+            # Left Arrow - Pan left (backward in time)
+            if key == Qt.Key_Left:
+                self._on_pan_left()
+                event.accept()
+                return
+            
+            # Right Arrow - Pan right (forward in time)
+            if key == Qt.Key_Right:
+                self._on_pan_right()
+                event.accept()
+                return
+            
+            # Up Arrow - Scroll up through signals
+            if key == Qt.Key_Up:
+                scrollbar = self.waveform_view.verticalScrollBar()
+                if scrollbar:
+                    scrollbar.setValue(scrollbar.value() - scrollbar.singleStep())
+                event.accept()
+                return
+            
+            # Down Arrow - Scroll down through signals
+            if key == Qt.Key_Down:
+                scrollbar = self.waveform_view.verticalScrollBar()
+                if scrollbar:
+                    scrollbar.setValue(scrollbar.value() + scrollbar.singleStep())
+                event.accept()
+                return
+            
+            # Home - Jump to start of data
+            if key == Qt.Key_Home:
+                full_range = self._viewport_state.full_time_range
+                if full_range:
+                    start_time, _ = full_range
+                    self._on_jump_to_time(start_time)
+                event.accept()
+                return
+            
+            # End - Jump to end of data
+            if key == Qt.Key_End:
+                full_range = self._viewport_state.full_time_range
+                if full_range:
+                    _, end_time = full_range
+                    self._on_jump_to_time(end_time)
+                event.accept()
+                return
+            
+            # + or = - Zoom in
+            if key in (Qt.Key_Plus, Qt.Key_Equal):
+                self._viewport_state.zoom_in(factor=1.5)
+                event.accept()
+                return
+            
+            # - - Zoom out
+            if key == Qt.Key_Minus:
+                self._viewport_state.zoom_out(factor=1.5)
+                event.accept()
+                return
+        
+        # Let parent handle other events
+        super().keyPressEvent(event)
 
     def clear(self):
         """Remove any loaded data and disable controls."""

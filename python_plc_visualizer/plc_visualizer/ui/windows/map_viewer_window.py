@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QKeyEvent
 
 from plc_visualizer.utils import SignalData
 from tools.map_viewer import MapParser, MapRenderer, MediaControls
@@ -238,6 +239,56 @@ class MapViewerView(QWidget):
 
         print(f"[MapViewer] Updated with {len(signal_data_list)} signals")
 
+    def get_current_time(self):
+        """Get the current playback time position."""
+        return self._current_time
+    
+    def keyPressEvent(self, event: QKeyEvent):
+        """Handle keyboard shortcuts for navigation."""
+        key = event.key()
+        modifiers = event.modifiers()
+        
+        # No modifiers required for these shortcuts
+        if modifiers == Qt.NoModifier:
+            # Left Arrow - Skip backward 10 seconds
+            if key == Qt.Key_Left:
+                self._skip_backward()
+                event.accept()
+                return
+            
+            # Right Arrow - Skip forward 10 seconds
+            if key == Qt.Key_Right:
+                self._skip_forward()
+                event.accept()
+                return
+            
+            # Space - Play/Pause
+            if key == Qt.Key_Space:
+                self._toggle_play()
+                event.accept()
+                return
+            
+            # Home - Jump to start of data
+            if key == Qt.Key_Home:
+                if self._start_time:
+                    self._current_time = self._start_time
+                    self.update_time_position(self._current_time)
+                    self._update_media_controls()
+                event.accept()
+                return
+            
+            # End - Jump to end of data
+            if key == Qt.Key_End:
+                if self._end_time:
+                    self._current_time = self._end_time
+                    self.update_time_position(self._current_time)
+                    self._update_media_controls()
+                event.accept()
+                return
+        
+        # Let parent handle other events
+        super().keyPressEvent(event)
+    
     def update_time_position(self, current_time: datetime):
         """Update the map to show the state at a specific time.
 

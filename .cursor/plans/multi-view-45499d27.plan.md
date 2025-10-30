@@ -1,151 +1,208 @@
 <!-- 45499d27-7988-421e-9ea8-1499c14aa1c0 ca25a723-1792-4fec-980a-b1e88e17c671 -->
-# Comprehensive Help Documentation
+# Enhanced Keyboard Shortcuts
 
 ## Overview
 
-Transform the HelpDialog from covering only the multi-view system to providing complete application documentation. This will help new users understand all features and serve as a quick reference for existing users.
+Add better keyboard shortcuts throughout the application for improved navigation and workflow efficiency. All new shortcuts must be documented in the help dialog.
 
 ## Current State
 
-The HelpDialog currently has 5 tabs focused solely on the multi-view system:
+- Basic shortcuts exist: Ctrl+T/L/M (new views), Ctrl+B (bookmarks), F1 (help)
+- CopyPasteTableView already implements Ctrl+C for copying
+- No tab switching shortcuts
+- No keyboard navigation in timing diagram or map viewer
+- Help dialog exists but needs updating
 
-- Overview (multi-view intro)
-- Split Panes
-- Time Sync
-- Bookmarks
-- Shortcuts (multi-view only)
+## Shortcuts to Implement
 
-## Target State
+### 1. Tab Navigation (ViewTabWidget & SplitPaneManager)
 
-Comprehensive documentation organized into logical sections:
+**Ctrl+PgDn** - Switch to next tab in active pane
 
-### New Tab Structure
+**Ctrl+PgUp** - Switch to previous tab in active pane
 
-1. **Getting Started** (replaces Overview)
+**Ctrl+W** - Close current tab (standard)
 
-- What is PLC Log Visualizer
-- Purpose and use cases
-- Quick start workflow (load → view → analyze)
-- System requirements
+**Ctrl+Tab** - Switch to next tab (alternative)
 
-2. **File Management**
+**Ctrl+Shift+Tab** - Switch to previous tab (alternative)
 
-- How to upload files (drag & drop, browse)
-- Supported file formats
-- Multiple file handling
-- Parsing process and progress
-- File list management (adding, removing)
-- Statistics panel explanation
+### 2. Timing Diagram View Navigation
 
-3. **Home View**
+**Left Arrow** - Pan left (move backward in time)
 
-- Purpose of the Home tab
-- Upload widget usage
-- File list features
-- Stats widget interpretation
-- Opening different views from buttons
+**Right Arrow** - Pan right (move forward in time)
 
-4. **Timing Diagram View**
+**Up Arrow** - Scroll up through signals
 
-- What it shows (signal waveforms over time)
-- Navigation (pan, zoom, scroll)
-- Signal filtering and search
-- Clicking signals to see intervals
-- Time range selection
-- Visual elements explained
+**Down Arrow** - Scroll down through signals
 
-5. **Log Table View**
+**Home** - Jump to start of data
 
-- What it shows (chronological log entries)
-- Sorting by columns
-- Filtering signals
-- Searching entries
-- Clicking signals to see intervals
-- Navigation and selection
+**End** - Jump to end of data
 
-6. **Map Viewer**
+**+/=** - Zoom in
 
-- Purpose (visualize PLC state on diagrams)
-- XML and YAML configuration
-- Time-based playback
-- Media controls
-- State visualization
+**-** - Zoom out
 
-7. **Signal Intervals**
+### 3. Map Viewer Navigation
 
-- What signal intervals show (state change analysis)
-- How to open (from views or menu)
-- Histogram interpretation
-- Statistics displayed
-- Use cases (finding patterns, anomalies)
+**Left Arrow** - Skip backward 10 seconds
 
-8. **Multi-View System** (keep existing content)
+**Right Arrow** - Skip forward 10 seconds
 
-- Split Panes (existing)
-- Time Sync (existing)
-- Bookmarks (existing)
-- Working with multiple views
+**Space** - Play/Pause
 
-9. **Keyboard Shortcuts** (expanded)
+**Home** - Jump to start
 
-- File operations
-- View management (Ctrl+T, Ctrl+L, Ctrl+M)
-- Bookmarks (Ctrl+B, Ctrl+[, Ctrl+])
-- Navigation shortcuts
-- Complete reference table
+**End** - Jump to end
 
-10. **Tips & Troubleshooting**
+### 4. Log Table (already has copy, verify it works)
 
-- Performance tips for large files
-- Common issues and solutions
-- Best practices for analysis
-- Workflow recommendations
+**Ctrl+C** - Copy selected cells (already implemented via CopyPasteTableView)
 
-## Implementation Details
+**Ctrl+F** - Focus search/filter box (if not already there)
 
-### Dialog Changes
+### 5. Global Shortcuts (already implemented, just document)
 
-- Update window title from "Multi-View System Help" to "PLC Log Visualizer - Help"
-- Increase minimum size to 800x700 to accommodate more content
-- Keep tabbed structure with scroll areas
+**F1** - Help
 
-### Content Guidelines
+**Ctrl+T** - New Timing Diagram
 
-- Use clear, concise language
-- Include visual cues (emojis, colors) for better scanning
-- Provide step-by-step instructions
-- Add context about when/why to use features
-- Use consistent formatting (bold for UI elements, code for shortcuts)
+**Ctrl+L** - New Log Table
 
-### Code Structure
+**Ctrl+M** - New Map Viewer
 
-- Each tab remains a separate method (`_create_<tab>_tab()`)
-- Maintain existing HTML-based rich text formatting
-- Keep scrollable content areas
-- Ensure responsive layout
+**Ctrl+B** - Add Bookmark
 
-## Benefits
+**Ctrl+Shift+B** - Show Bookmarks
 
-- New users can learn the entire application from one place
-- No need to explore menus to discover features
-- Quick reference for keyboard shortcuts
-- Reduces learning curve significantly
-- F1 shortcut becomes truly helpful
+**Ctrl+]** - Next Bookmark
+
+**Ctrl+[** - Previous Bookmark
+
+## Implementation Plan
+
+### Phase 1: Tab Navigation
+
+**File**: `view_tab_widget.py`
+
+- Override `keyPressEvent` in ViewTabWidget
+- Implement Ctrl+PgDn/PgUp to switch tabs
+- Implement Ctrl+W to close current tab
+- Handle Ctrl+Tab / Ctrl+Shift+Tab
+
+**File**: `split_pane_manager.py`
+
+- Install event filter on panes to catch tab navigation shortcuts
+- Route shortcuts to appropriate pane
+
+### Phase 2: Timing Diagram Navigation
+
+**File**: `timing_window.py` or `waveform_view.py`
+
+- Override `keyPressEvent` to handle arrow keys
+- Connect to existing pan/zoom controls
+- Left/Right: emit pan signals
+- Up/Down: scroll viewport
+- Home/End: jump to time boundaries
+- +/=/-: trigger zoom
+
+### Phase 3: Map Viewer Navigation
+
+**File**: `map_viewer_window.py`
+
+- Override `keyPressEvent`
+- Left/Right: call `_skip_backward()` / `_skip_forward()`
+- Space: call `_toggle_play()`
+- Home/End: jump to start/end time
+
+### Phase 4: Update Help Dialog
+
+**File**: `help_dialog.py`
+
+- Update "Shortcuts" tab with ALL new shortcuts
+- Organize by context (Global, Tab Management, Navigation)
+- Update Quick Reference table
+- Add navigation tips for each view type
+
+### Phase 5: Testing
+
+- Test all shortcuts in each context
+- Verify no conflicts with existing shortcuts
+- Ensure focus handling works correctly
+- Test on different platforms if possible
+
+## Technical Details
+
+### Event Handling Approach
+
+- Use `keyPressEvent` override for view-specific shortcuts
+- Use `QShortcut` for global shortcuts (already done in MainWindow)
+- Consider `installEventFilter` for tab widget shortcuts
+- Ensure shortcuts don't interfere with text input widgets
+
+### Focus Management
+
+- Shortcuts should only work when relevant view has focus
+- Tab navigation should work when any pane has focus
+- Global shortcuts work regardless of focus (via QShortcut)
+
+### Tooltip Updates
+
+- Add keyboard shortcut hints to button tooltips
+- Example: "Pan left (← or click)"
+
+## Help Documentation Updates
+
+### Shortcuts Tab Structure
+
+```
+Keyboard Shortcuts
+├── Global Shortcuts
+│   ├── File & Views
+│   └── Help
+├── Tab Management
+│   ├── Switching Tabs
+│   └── Closing Tabs
+├── Timing Diagram Navigation
+│   ├── Time Navigation
+│   ├── Signal Navigation
+│   └── Zoom
+├── Map Viewer Navigation
+│   ├── Playback Control
+│   └── Time Jumping
+├── Log Table
+│   └── Selection & Copy
+└── Quick Reference Card (updated table)
+```
 
 ## Files to Modify
 
-- `plc_visualizer/ui/dialogs/help_dialog.py` - expand with new tabs and content
+- `ui/components/view_tab_widget.py` - tab navigation shortcuts
+- `ui/components/split_pane_manager.py` - event filtering for tab shortcuts
+- `ui/windows/timing_window.py` - timing diagram navigation
+- `ui/windows/map_viewer_window.py` - map viewer navigation
+- `ui/dialogs/help_dialog.py` - comprehensive shortcut documentation
+
+## Benefits
+
+- Keyboard-driven workflow for power users
+- Standard shortcuts (Ctrl+PgDn/Up) feel native
+- Navigation without mouse improves efficiency
+- Comprehensive help makes shortcuts discoverable
+- Better accessibility overall
 
 ### To-dos
 
-- [ ] Update HelpDialog title and minimum size for comprehensive docs
-- [ ] Create Getting Started tab with app overview and quick start
-- [ ] Create File Management tab documenting upload and parsing
-- [ ] Create Home View tab explaining the main screen
-- [ ] Create Timing Diagram View tab with features and usage
-- [ ] Create Log Table View tab with features and usage
-- [ ] Create Map Viewer tab explaining visualization features
-- [ ] Create Signal Intervals tab explaining histograms and stats
-- [ ] Update Overview tab to Multi-View System with refined content
-- [ ] Expand Shortcuts tab with complete reference including file ops
-- [ ] Create Tips & Troubleshooting tab with best practices
+- [x] 
+- [x] 
+- [x] 
+- [x] 
+- [x] 
+- [x] 
+- [x] 
+- [x] 
+- [x] 
+- [x] 
+- [x] 

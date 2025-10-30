@@ -79,6 +79,35 @@ class LogTableView(QWidget):
 
         self.signal_filter.set_signals(signal_data)
         self.data_table.set_data(parsed_log)
+    
+    def get_current_time(self):
+        """Get the timestamp of the currently selected row, or None if no selection."""
+        if not self.data_table or not self.data_table.table_view:
+            return None
+        
+        # Get the selected row
+        selection = self.data_table.table_view.selectionModel()
+        if not selection or not selection.hasSelection():
+            return None
+        
+        selected_indexes = selection.selectedRows()
+        if not selected_indexes:
+            return None
+        
+        # Get the first selected row
+        row_index = selected_indexes[0].row()
+        
+        # Get the entry from the model
+        model = self.data_table.model
+        if row_index < 0 or row_index >= model.rowCount():
+            return None
+        
+        # Access the internal _entries list to get the timestamp
+        if hasattr(model, '_entries') and row_index < len(model._entries):
+            entry = model._entries[row_index]
+            return entry.timestamp
+        
+        return None
 
     def load_validation_rules(self, rules_path: str | Path = None) -> bool:
         """Load validation rules from a YAML file.

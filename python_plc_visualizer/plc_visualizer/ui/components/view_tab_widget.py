@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal, QPoint, QRect
-from PySide6.QtGui import QDrag, QPainter, QColor, QPen, QMouseEvent
+from PySide6.QtGui import QDrag, QPainter, QColor, QPen, QMouseEvent, QKeyEvent
 from PySide6.QtWidgets import QTabWidget, QTabBar, QWidget, QMenu
 
 
@@ -200,6 +200,66 @@ class ViewTabWidget(QTabWidget):
                 return QRect(0, rect.height() - zone_size, rect.width(), zone_size)
 
         return QRect()
+
+    def keyPressEvent(self, event: QKeyEvent):
+        """Handle keyboard shortcuts for tab navigation."""
+        # Get modifiers
+        modifiers = event.modifiers()
+        key = event.key()
+        
+        # Ctrl+PgDn - Next tab
+        if modifiers == Qt.ControlModifier and key == Qt.Key_PageDown:
+            current = self.currentIndex()
+            if current < self.count() - 1:
+                self.setCurrentIndex(current + 1)
+            else:
+                self.setCurrentIndex(0)  # Wrap around
+            event.accept()
+            return
+        
+        # Ctrl+PgUp - Previous tab
+        if modifiers == Qt.ControlModifier and key == Qt.Key_PageUp:
+            current = self.currentIndex()
+            if current > 0:
+                self.setCurrentIndex(current - 1)
+            else:
+                self.setCurrentIndex(self.count() - 1)  # Wrap around
+            event.accept()
+            return
+        
+        # Ctrl+Tab - Next tab (alternative)
+        if modifiers == Qt.ControlModifier and key == Qt.Key_Tab:
+            current = self.currentIndex()
+            if current < self.count() - 1:
+                self.setCurrentIndex(current + 1)
+            else:
+                self.setCurrentIndex(0)  # Wrap around
+            event.accept()
+            return
+        
+        # Ctrl+Shift+Tab - Previous tab (alternative)
+        if modifiers == (Qt.ControlModifier | Qt.ShiftModifier) and key == Qt.Key_Backtab:
+            current = self.currentIndex()
+            if current > 0:
+                self.setCurrentIndex(current - 1)
+            else:
+                self.setCurrentIndex(self.count() - 1)  # Wrap around
+            event.accept()
+            return
+        
+        # Ctrl+W - Close current tab
+        if modifiers == Qt.ControlModifier and key == Qt.Key_W:
+            current = self.currentIndex()
+            if current >= 0:
+                widget = self.widget(current)
+                self.removeTab(current)
+                if widget:
+                    self.tab_closed.emit(widget)
+            event.accept()
+            return
+        
+        # Let parent handle other events
+        super().keyPressEvent(event)
 
     def contextMenuEvent(self, event):
         """Show context menu on right-click."""
