@@ -1,4 +1,4 @@
-"""Standalone window for viewing the timing diagram with signal filters."""
+"""Embeddable timing diagram view with signal filters."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QMainWindow,
     QWidget,
     QSplitter,
     QVBoxLayout,
@@ -24,10 +23,12 @@ from ..components.signal_filter_widget import SignalFilterWidget
 from ..theme import create_header_bar, card_panel_styles, surface_stylesheet
 
 
-class TimingDiagramWindow(QMainWindow):
-    """Window that hosts the waveform view alongside signal filters."""
+class TimingDiagramView(QWidget):
+    """Embeddable view that hosts the waveform view alongside signal filters."""
 
-    def __init__(self, parent=None):
+    VIEW_TYPE = "timing_diagram"
+
+    def __init__(self, viewport_state: ViewportState, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Timing Diagram")
         self._parsed_log: Optional[ParsedLog] = None
@@ -35,10 +36,15 @@ class TimingDiagramWindow(QMainWindow):
         self._signal_data_map: dict[str, SignalData] = {}
         self._interval_request_handler: Optional[Callable[[str], None]] = None
 
-        self._viewport_state = ViewportState(self)
+        self._viewport_state = viewport_state
         self._init_ui()
         self._connect_viewport_signals()
         self._update_controls_enabled(False)
+
+    @property
+    def view_type(self) -> str:
+        """Return the type identifier for this view."""
+        return self.VIEW_TYPE
 
     # Public API ---------------------------------------------------------
     @property
@@ -92,12 +98,10 @@ class TimingDiagramWindow(QMainWindow):
 
     # Internal helpers ---------------------------------------------------
     def _init_ui(self):
-        central = QWidget()
-        central.setObjectName("TimingWindowSurface")
-        central.setStyleSheet(surface_stylesheet("TimingWindowSurface"))
-        self.setCentralWidget(central)
+        self.setObjectName("TimingViewSurface")
+        self.setStyleSheet(surface_stylesheet("TimingViewSurface"))
 
-        root_layout = QVBoxLayout(central)
+        root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
@@ -294,3 +298,7 @@ class TimingDiagramWindow(QMainWindow):
 
         if self._interval_request_handler:
             self._interval_request_handler(signal_key)
+
+
+# Backward compatibility alias
+TimingDiagramWindow = TimingDiagramView

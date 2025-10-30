@@ -1,34 +1,35 @@
 """Main application window for PLC Log Visualizer."""
 
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QResizeEvent
+from PySide6.QtGui import QResizeEvent, QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QProgressBar,
     QVBoxLayout,
     QWidget,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
+    QInputDialog,
 )
 
 from plc_visualizer.app import SessionManager
 from plc_visualizer.models import ParseResult
 from plc_visualizer.utils import SignalData, compute_signal_states
-from .components.file_upload_widget import FileUploadWidget
-from .components.file_list_widget import FileListWidget
-from .components.stats_widget import StatsWidget
-from .windows.timing_window import TimingDiagramWindow
-from .windows.log_table_window import LogTableWindow
+from .components.split_pane_manager import SplitPaneManager
+from .views.home_view import HomeView
+from .windows.timing_window import TimingDiagramView
+from .windows.log_table_window import LogTableView
 from .windows.interval_window import SignalIntervalDialog
-from .windows.map_viewer_window import IntegratedMapViewer
+from .windows.map_viewer_window import MapViewerView
 from .dialogs.signal_selection_dialog import SignalSelectionDialog
+from .dialogs.bookmark_dialog import BookmarkDialog
+from .dialogs.help_dialog import HelpDialog
 
 
 class MainWindow(QMainWindow):
@@ -47,14 +48,18 @@ class MainWindow(QMainWindow):
         print(f"[MainWindow] Initialized on platform '{platform_name}', is_wayland={self._is_wayland}")
 
         self.session_manager = SessionManager(self)
-        self._timing_window: Optional[TimingDiagramWindow] = None
-        self._table_window: Optional[LogTableWindow] = None
-        self._map_viewer_window = None
+        
+        # Split pane manager for views
+        self._split_pane_manager: Optional[SplitPaneManager] = None
+        self._home_view: Optional[HomeView] = None
+        
+        # Dialog windows
         self._interval_windows: dict[str, SignalIntervalDialog] = {}
         self._interval_selection_window: Optional[SignalSelectionDialog] = None
+        self._bookmark_dialog: Optional[BookmarkDialog] = None
+        self._help_dialog: Optional[HelpDialog] = None
 
-        self.stats_widget: Optional[StatsWidget] = None
-        self.file_list_widget: Optional[FileListWidget] = None
+        self._sync_button: Optional[QPushButton] = None
 
         self._init_ui()
         self._bind_session_manager()
@@ -76,7 +81,7 @@ class MainWindow(QMainWindow):
         """)
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(18, 10, 18, 10)
-        header_layout.setSpacing(0)
+        header_layout.setSpacing(10)
 
         # Header title
         header_label = QLabel("PLC Log Visualizer")
@@ -84,10 +89,34 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(header_label)
         header_layout.addStretch()
 
-        # Clear File button in header
-        clear_button = QPushButton("Clear File")
-        clear_button.setMaximumWidth(120)
-        clear_button.setStyleSheet("""
+        # Help button in header
+        help_button = QPushButton("❓ Help")
+        help_button.setMaximumWidth(80)
+        help_button.setStyleSheet("""
+            QPushButton {
+                background-color: #34A853;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2D8E47;
+            }
+            QPushButton:pressed {
+                background-color: #1E7735;
+            }
+        """)
+        help_button.clicked.connect(self._show_help_dialog)
+        header_layout.addWidget(help_button)
+
+        # Sync All Views button in header
+        self._sync_button = QPushButton("🔗 Sync Views")
+        self._sync_button.setMaximumWidth(120)
+        self._sync_button.setEnabled(False)  # Disabled until data is loaded
+        self._sync_button.setStyleSheet("""
             QPushButton {
                 background-color: #4285F4;
                 color: white;
@@ -102,6 +131,33 @@ class MainWindow(QMainWindow):
             }
             QPushButton:pressed {
                 background-color: #0D47A1;
+            }
+            QPushButton:disabled {
+                background-color: #BDBDBD;
+                color: #E0E0E0;
+            }
+        """)
+        self._sync_button.clicked.connect(self._on_sync_all_views)
+        header_layout.addWidget(self._sync_button)
+        
+        # Clear File button in header
+        clear_button = QPushButton("Clear")
+        clear_button.setMaximumWidth(90)
+        clear_button.setStyleSheet("""
+            QPushButton {
+                background-color: #F44336;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #D32F2F;
+            }
+            QPushButton:pressed {
+                background-color: #B71C1C;
             }
         """)
         clear_button.clicked.connect(self._on_clear_file)
@@ -118,203 +174,29 @@ class MainWindow(QMainWindow):
         # Add header
         main_layout.addWidget(header_widget)
 
-        # Content area
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(16, 16, 16, 16)
-        content_layout.setSpacing(16)
-
-        # 2-column top section: Upload/Stats (left) and File List (right)
-        top_section = QWidget()
-        top_layout = QHBoxLayout(top_section)
-        top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(16)
-
-        # LEFT COLUMN: Upload widget and stats
-        left_column = QWidget()
-        left_layout = QVBoxLayout(left_column)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(12)
-
-        # Upload section label
-        upload_label = QLabel("📄 Log File")
-        upload_label.setStyleSheet("font-weight: bold; font-size: 13px;")
-        left_layout.addWidget(upload_label)
-
-        # Upload widget
-        self.upload_widget = FileUploadWidget()
-        self.upload_widget.files_selected.connect(self._on_files_selected)
-        left_layout.addWidget(self.upload_widget)
-
-        # Stats widget
-        stats_container = QWidget()
-        stats_layout = QVBoxLayout(stats_container)
-        stats_layout.setContentsMargins(0, 0, 0, 0)
-        stats_layout.setSpacing(0)
-
-        self.stats_widget = StatsWidget(stats_container)
-        stats_layout.addWidget(self.stats_widget)
-
-        left_layout.addWidget(stats_container)
-        top_layout.addWidget(left_column, 40)  # 40% width
-
-        # RIGHT COLUMN: File list
-        self.file_list_widget = FileListWidget()
-        self.file_list_widget.file_removed.connect(self._on_file_removed_from_list)
-        top_layout.addWidget(self.file_list_widget, 60)  # 60% width
-
-        content_layout.addWidget(top_section, 1)
-
-        # Progress bar (hidden during normal operation, shown during parsing)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFormat("Parsing files... %p%")
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #BDBDBD;
-                border-radius: 4px;
-                text-align: center;
-                background-color: #f5f5f5;
-                height: 24px;
-            }
-            QProgressBar::chunk {
-                background-color: #4285F4;
-            }
-        """)
-        content_layout.addWidget(self.progress_bar)
-
-        # Buttons section
-        buttons_container = QWidget()
-        buttons_layout = QGridLayout(buttons_container)
-        buttons_layout.setContentsMargins(0, 16, 0, 0)
-        buttons_layout.setHorizontalSpacing(16)
-        buttons_layout.setVerticalSpacing(16)
-
-        # Timing Diagram button (gray)
-        self.timing_button = QPushButton("⚙ Timing Diagram")
-        self.timing_button.clicked.connect(self._open_timing_diagram_window)
-        self.timing_button.setMinimumHeight(120)
-        self.timing_button.setMinimumWidth(250)
-        self.timing_button.setStyleSheet("""
-            QPushButton {
-                background-color: #9E9E9E;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 15px;
-            }
-            QPushButton:hover {
-                background-color: #757575;
-            }
-            QPushButton:pressed {
-                background-color: #616161;
-            }
-            QPushButton:disabled {
-                background-color: #BDBDBD;
-                color: #f5f5f5;
-            }
-        """)
-        buttons_layout.addWidget(self.timing_button, 0, 0)
-
-        # Map Viewer button (blue - primary)
-        self.map_button = QPushButton("📖 Map Viewer")
-        self.map_button.clicked.connect(self._open_map_viewer)
-        self.map_button.setMinimumHeight(120)
-        self.map_button.setMinimumWidth(250)
-        self.map_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4285F4;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 15px;
-            }
-            QPushButton:hover {
-                background-color: #1967D2;
-            }
-            QPushButton:pressed {
-                background-color: #0D47A1;
-            }
-            QPushButton:disabled {
-                background-color: #BDBDBD;
-                color: #f5f5f5;
-            }
-        """)
-        buttons_layout.addWidget(self.map_button, 0, 1)
-
-        # Transition Intervals button (gray)
-        self.interval_button = QPushButton("📈 Transition Intervals")
-        self.interval_button.clicked.connect(self._open_signal_interval_windows)
-        self.interval_button.setMinimumHeight(120)
-        self.interval_button.setMinimumWidth(250)
-        self.interval_button.setStyleSheet("""
-            QPushButton {
-                background-color: #9E9E9E;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 15px;
-            }
-            QPushButton:hover {
-                background-color: #757575;
-            }
-            QPushButton:pressed {
-                background-color: #616161;
-            }
-            QPushButton:disabled {
-                background-color: #BDBDBD;
-                color: #f5f5f5;
-            }
-        """)
-        buttons_layout.addWidget(self.interval_button, 1, 0)
-
-        # Log Table button (gray)
-        self.table_button = QPushButton("📋 Log Table")
-        self.table_button.clicked.connect(self._open_log_table_window)
-        self.table_button.setMinimumHeight(120)
-        self.table_button.setMinimumWidth(250)
-        self.table_button.setStyleSheet("""
-            QPushButton {
-                background-color: #9E9E9E;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 15px;
-            }
-            QPushButton:hover {
-                background-color: #757575;
-            }
-            QPushButton:pressed {
-                background-color: #616161;
-            }
-            QPushButton:disabled {
-                background-color: #BDBDBD;
-                color: #f5f5f5;
-            }
-        """)
-        buttons_layout.addWidget(self.table_button, 1, 1)
-
-        content_layout.addWidget(buttons_container, 1)
-
-        main_layout.addWidget(content_widget, 1)
+        # Split Pane Manager fills entire area below header
+        self._split_pane_manager = SplitPaneManager()
+        self._split_pane_manager.view_closed.connect(self._on_view_closed)
+        main_layout.addWidget(self._split_pane_manager, 1)
+        
+        # Create and add HomeView as the initial tab
+        self._home_view = HomeView(self.session_manager, self)
+        self._home_view.upload_widget.files_selected.connect(self._on_files_selected)
+        self._home_view.file_list_widget.file_removed.connect(self._on_file_removed_from_list)
+        
+        # Connect view button signals to view creation methods
+        self._home_view.timing_diagram_requested.connect(self._add_timing_view)
+        self._home_view.log_table_requested.connect(self._add_log_table_view)
+        self._home_view.map_viewer_requested.connect(self._add_map_viewer_view)
+        self._home_view.signal_intervals_requested.connect(self._open_signal_interval_windows)
+        
+        self._split_pane_manager.add_view(self._home_view, "🏠 Home")
 
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #ffffff;
             }
         """)
-
-        self._update_navigation_buttons(False)
 
     def _bind_session_manager(self):
         """Connect session manager signals to window handlers."""
@@ -323,32 +205,242 @@ class MainWindow(QMainWindow):
         self.session_manager.parse_failed.connect(self._on_parse_error)
         self.session_manager.session_ready.connect(self._on_session_ready)
         self.session_manager.session_cleared.connect(self._on_session_cleared)
-
-    def _update_navigation_buttons(self, has_data: bool):
-        """Enable or disable navigation buttons based on parsed data availability."""
-        self.timing_button.setEnabled(has_data)
-        self.table_button.setEnabled(has_data)
-        self.interval_button.setEnabled(has_data)
-        # Map viewer can open without parsed data so keep it enabled
-        self.map_button.setEnabled(True)
+        
+        # Connect bookmark signals
+        self.session_manager.bookmark_jump_requested.connect(self._on_bookmark_jump)
+        self.session_manager.bookmarks_changed.connect(self._on_bookmarks_changed)
 
     def _create_menu_bar(self):
-        """Create the menu bar with tools menu."""
+        """Create the menu bar with view and bookmark menus."""
         menu_bar = self.menuBar()
-        tools_menu = menu_bar.addMenu("&Tools")
+        
+        # View menu for adding new views
+        view_menu = menu_bar.addMenu("&View")
 
-        timing_action = tools_menu.addAction("Open &Timing Diagram")
-        timing_action.triggered.connect(self._open_timing_diagram_window)
+        timing_action = view_menu.addAction("New &Timing Diagram")
+        timing_action.setShortcut(QKeySequence("Ctrl+T"))
+        timing_action.triggered.connect(self._add_timing_view)
 
-        table_action = tools_menu.addAction("Open &Log Table")
-        table_action.triggered.connect(self._open_log_table_window)
+        table_action = view_menu.addAction("New &Log Table")
+        table_action.setShortcut(QKeySequence("Ctrl+L"))
+        table_action.triggered.connect(self._add_log_table_view)
 
-        map_viewer_action = tools_menu.addAction("Open Map &Viewer")
-        map_viewer_action.triggered.connect(self._open_map_viewer)
+        map_viewer_action = view_menu.addAction("New Map &Viewer")
+        map_viewer_action.setShortcut(QKeySequence("Ctrl+M"))
+        map_viewer_action.triggered.connect(self._add_map_viewer_view)
+        
+        view_menu.addSeparator()
 
-        interval_action = tools_menu.addAction("Plot &Signal Intervals")
+        interval_action = view_menu.addAction("Plot &Signal Intervals")
         interval_action.triggered.connect(self._open_signal_interval_windows)
+        
+        # Bookmarks menu
+        bookmarks_menu = menu_bar.addMenu("&Bookmarks")
+        
+        add_bookmark_action = bookmarks_menu.addAction("&Add Bookmark at Current Time")
+        add_bookmark_action.setShortcut(QKeySequence("Ctrl+B"))
+        add_bookmark_action.triggered.connect(self._add_bookmark_at_current_time)
+        
+        show_bookmarks_action = bookmarks_menu.addAction("&Show Bookmarks")
+        show_bookmarks_action.setShortcut(QKeySequence("Ctrl+Shift+B"))
+        show_bookmarks_action.triggered.connect(self._show_bookmark_dialog)
+        
+        bookmarks_menu.addSeparator()
+        
+        next_bookmark_action = bookmarks_menu.addAction("&Next Bookmark")
+        next_bookmark_action.setShortcut(QKeySequence("Ctrl+]"))
+        next_bookmark_action.triggered.connect(self.session_manager.next_bookmark)
+        
+        prev_bookmark_action = bookmarks_menu.addAction("&Previous Bookmark")
+        prev_bookmark_action.setShortcut(QKeySequence("Ctrl+["))
+        prev_bookmark_action.triggered.connect(self.session_manager.prev_bookmark)
+        
+        # Help menu
+        help_menu = menu_bar.addMenu("&Help")
+        
+        help_action = help_menu.addAction("&Multi-View System Help")
+        help_action.setShortcut(QKeySequence("F1"))
+        help_action.triggered.connect(self._show_help_dialog)
 
+    # View management methods -----------------------------------------------
+    def _add_timing_view(self):
+        """Add a new timing diagram view to the split pane manager."""
+        if not self._split_pane_manager:
+            return
+        
+        view = TimingDiagramView(self.session_manager.viewport_state, self)
+        view.set_interval_request_handler(self._open_signal_interval_for_key)
+        
+        # Set data if available
+        parsed_log = self.session_manager.parsed_log
+        signal_data = self.session_manager.signal_data_list
+        if parsed_log:
+            view.set_data(parsed_log, signal_data)
+        
+        self._split_pane_manager.add_view(view, "Timing Diagram")
+    
+    def _add_log_table_view(self):
+        """Add a new log table view to the split pane manager."""
+        if not self._split_pane_manager:
+            return
+        
+        view = LogTableView(self)
+        view.set_interval_request_handler(self._open_signal_interval_for_key)
+        
+        # Set data if available
+        parsed_log = self.session_manager.parsed_log
+        signal_data = self.session_manager.signal_data_list
+        if parsed_log:
+            view.set_data(parsed_log, signal_data)
+        
+        self._split_pane_manager.add_view(view, "Log Table")
+    
+    def _add_map_viewer_view(self):
+        """Add a new map viewer view to the split pane manager."""
+        if not self._split_pane_manager:
+            return
+        
+        signal_data = self.session_manager.signal_data_list
+        
+        # Find default map files
+        base_path = Path(__file__).parent.parent.parent / "tools" / "map_viewer"
+        xml_file = base_path / "test.xml"
+        yaml_file = base_path / "mappings_and_rules.yaml"
+        
+        xml_path = str(xml_file) if xml_file.exists() else None
+        yaml_path = str(yaml_file) if yaml_file.exists() else None
+        
+        view = MapViewerView(signal_data, xml_path, yaml_path, self)
+        self._split_pane_manager.add_view(view, "Map Viewer")
+    
+    def _on_view_closed(self, view: QWidget):
+        """Handle when a view is closed."""
+        # Clean up any resources associated with the view
+        if hasattr(view, 'clear'):
+            view.clear()
+    
+    # Sync and bookmark methods ---------------------------------------------
+    def _on_sync_all_views(self):
+        """Sync all views to the current time of the active view."""
+        if not self._split_pane_manager:
+            return
+        
+        active_view = self._split_pane_manager.get_active_view()
+        if not active_view:
+            QMessageBox.information(
+                self,
+                "No Active View",
+                "Please select a view first."
+            )
+            return
+        
+        # Get current time from active view
+        current_time = None
+        if isinstance(active_view, TimingDiagramView):
+            visible_range = active_view.viewport_state.visible_time_range
+            if visible_range:
+                current_time = visible_range[0]  # Use start of visible range
+        
+        if current_time:
+            self.session_manager.sync_all_views(current_time)
+        else:
+            QMessageBox.information(
+                self,
+                "No Time Available",
+                "The active view does not have a time position to sync."
+            )
+    
+    def _add_bookmark_at_current_time(self):
+        """Add a bookmark at the current time position."""
+        # Get current time from active timing view
+        current_time = None
+        if self._split_pane_manager:
+            active_view = self._split_pane_manager.get_active_view()
+            if isinstance(active_view, TimingDiagramView):
+                visible_range = active_view.viewport_state.visible_time_range
+                if visible_range:
+                    current_time = visible_range[0]
+        
+        if not current_time:
+            # Try to get from session manager's viewport state
+            visible_range = self.session_manager.viewport_state.visible_time_range
+            if visible_range:
+                current_time = visible_range[0]
+        
+        if not current_time:
+            QMessageBox.information(
+                self,
+                "No Time Available",
+                "Please open a timing diagram view first."
+            )
+            return
+        
+        # Prompt for bookmark label
+        label, ok = QInputDialog.getText(
+            self,
+            "Add Bookmark",
+            f"Bookmark label for {current_time.strftime('%H:%M:%S.%f')[:-3]}:",
+            text="Bookmark"
+        )
+        
+        if ok and label.strip():
+            self.session_manager.add_bookmark(current_time, label.strip())
+            QMessageBox.information(
+                self,
+                "Bookmark Added",
+                f"Added bookmark '{label.strip()}' at {current_time.strftime('%H:%M:%S.%f')[:-3]}"
+            )
+    
+    def _show_bookmark_dialog(self):
+        """Show the bookmark management dialog."""
+        if self._bookmark_dialog is None or not self._bookmark_dialog.isVisible():
+            self._bookmark_dialog = BookmarkDialog(
+                self.session_manager.bookmarks,
+                add_callback=self._on_bookmark_dialog_add,
+                delete_callback=self._on_bookmark_dialog_delete,
+                parent=self
+            )
+            self._bookmark_dialog.bookmark_selected.connect(self.session_manager.jump_to_bookmark)
+        
+        self._bookmark_dialog.set_bookmarks(self.session_manager.bookmarks)
+        self._bookmark_dialog.show()
+        self._bookmark_dialog.raise_()
+        self._bookmark_dialog.activateWindow()
+    
+    def _on_bookmark_dialog_add(self, label: str, description: str):
+        """Handle adding bookmark from dialog."""
+        # Use current time
+        current_time = None
+        visible_range = self.session_manager.viewport_state.visible_time_range
+        if visible_range:
+            current_time = visible_range[0]
+        
+        if current_time:
+            self.session_manager.add_bookmark(current_time, label, description)
+    
+    def _on_bookmark_dialog_delete(self, index: int):
+        """Handle deleting bookmark from dialog."""
+        self.session_manager.remove_bookmark(index)
+    
+    def _on_bookmark_jump(self, target_time: datetime):
+        """Handle jumping to a bookmark time."""
+        self.session_manager.viewport_state.jump_to_time(target_time)
+    
+    def _on_bookmarks_changed(self):
+        """Handle when bookmarks list changes."""
+        if self._bookmark_dialog and self._bookmark_dialog.isVisible():
+            self._bookmark_dialog.set_bookmarks(self.session_manager.bookmarks)
+    
+    def _show_help_dialog(self):
+        """Show the help dialog."""
+        if self._help_dialog is None or not self._help_dialog.isVisible():
+            self._help_dialog = HelpDialog(self)
+        
+        self._help_dialog.show()
+        self._help_dialog.raise_()
+        self._help_dialog.activateWindow()
+
+    # Legacy methods (to be removed or refactored) -------------------------
     def _open_timing_diagram_window(self):
         """Launch or focus the timing diagram window."""
         if self._timing_window is not None:
@@ -667,9 +759,9 @@ class MainWindow(QMainWindow):
             return
 
         # Add files to file list widget
-        if self.file_list_widget:
+        if self._home_view and self._home_view.file_list_widget:
             for file_path in resolved_paths:
-                self.file_list_widget.add_file(file_path)
+                self._home_view.file_list_widget.add_file(file_path)
 
         if not self.session_manager.parse_files(resolved_paths):
             QMessageBox.information(
@@ -684,20 +776,20 @@ class MainWindow(QMainWindow):
         if not file_paths:
             return
 
-        self.progress_bar.setVisible(True)
-        self.upload_widget.setEnabled(False)
-        names = ", ".join(Path(path).name for path in file_paths)
-        self.upload_widget.set_status(
-            f"📄 Parsing {len(file_paths)} file(s): {names}"
-        )
-        self.progress_bar.setRange(0, len(file_paths))
-        self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("Parsing files... %p%")
+        if self._home_view:
+            self._home_view.progress_bar.setVisible(True)
+            self._home_view.upload_widget.setEnabled(False)
+            names = ", ".join(Path(path).name for path in file_paths)
+            self._home_view.upload_widget.set_status(
+                f"📄 Parsing {len(file_paths)} file(s): {names}"
+            )
+            self._home_view.progress_bar.setRange(0, len(file_paths))
+            self._home_view.progress_bar.setValue(0)
+            self._home_view.progress_bar.setFormat("Parsing files... %p%")
+            
+            if self._home_view.stats_widget:
+                self._home_view.stats_widget.clear()
 
-        if self.stats_widget:
-            self.stats_widget.clear()
-
-        self._update_navigation_buttons(False)
         self._reset_child_windows(clear_only=True)
 
     def _on_session_ready(
@@ -707,13 +799,14 @@ class MainWindow(QMainWindow):
         signal_data_list: list[SignalData],
     ):
         """Handle completion of a parse job."""
-        self.progress_bar.setVisible(False)
-        self.progress_bar.reset()
-        self.progress_bar.setFormat("Parsing files... %p%")
-        self.upload_widget.setEnabled(True)
+        if self._home_view:
+            self._home_view.progress_bar.setVisible(False)
+            self._home_view.progress_bar.reset()
+            self._home_view.progress_bar.setFormat("Parsing files... %p%")
+            self._home_view.upload_widget.setEnabled(True)
 
-        if self.file_list_widget:
-            self.file_list_widget.hide_all_progress()
+            if self._home_view.file_list_widget:
+                self._home_view.file_list_widget.hide_all_progress()
 
         total_files = len(self.session_manager.current_files)
         successful_files = [
@@ -723,8 +816,8 @@ class MainWindow(QMainWindow):
             path for path, result in per_file_results.items() if not result.success
         ]
 
-        if self.stats_widget:
-            self.stats_widget.update_stats(aggregated_result)
+        if self._home_view and self._home_view.stats_widget:
+            self._home_view.stats_widget.update_stats(aggregated_result)
 
         if not aggregated_result.success:
             primary_error = aggregated_result.errors[0] if aggregated_result.errors else None
@@ -738,39 +831,36 @@ class MainWindow(QMainWindow):
                 "Parsing Error",
                 f"Failed to parse selected files{details}"
             )
-            self.upload_widget.set_status(
-                "📁 Drag and drop log files here\nor click to browse"
-            )
-            self._update_navigation_buttons(False)
+            if self._home_view:
+                self._home_view.upload_widget.set_status(
+                    "📁 Drag and drop log files here\nor click to browse"
+                )
             return
 
         parsed_log = aggregated_result.data
-        if self._timing_window is not None:
-            try:
-                self._timing_window.set_data(parsed_log, signal_data_list)
-            except RuntimeError:
-                self._timing_window = None
-
-        if self._table_window is not None:
-            try:
-                self._table_window.set_data(parsed_log, signal_data_list)
-            except RuntimeError:
-                self._table_window = None
-
-        if self._map_viewer_window is not None:
-            try:
-                self._map_viewer_window.set_signal_data(signal_data_list)
-            except RuntimeError:
-                self._map_viewer_window = None
-
+        
+        # Update all views in split pane manager
+        if self._split_pane_manager:
+            for view in self._split_pane_manager.get_all_views():
+                try:
+                    if isinstance(view, (TimingDiagramView, LogTableView)):
+                        view.set_data(parsed_log, signal_data_list)
+                    elif isinstance(view, MapViewerView):
+                        view.set_signal_data(signal_data_list)
+                except (RuntimeError, AttributeError):
+                    pass
+        
+        # Enable sync button when data is available
         has_data = parsed_log is not None
-        self._update_navigation_buttons(has_data)
+        if self._sync_button:
+            self._sync_button.setEnabled(has_data)
 
         success_count = len(successful_files)
         status = f"✓ Loaded {success_count} of {total_files} file(s)"
         if aggregated_result.has_errors:
             status += f" with {aggregated_result.error_count} error(s)"
-        self.upload_widget.set_status(status)
+        if self._home_view:
+            self._home_view.upload_widget.set_status(status)
 
         if aggregated_result.has_errors and aggregated_result.error_count > 5:
             QMessageBox.warning(
@@ -793,50 +883,66 @@ class MainWindow(QMainWindow):
 
     def _on_parse_error(self, error_msg: str):
         """Handle parsing errors emitted by the session manager."""
-        self.progress_bar.setVisible(False)
-        self.upload_widget.setEnabled(True)
-        self.progress_bar.reset()
-        self.progress_bar.setFormat("Parsing files... %p%")
-        self._update_navigation_buttons(False)
+        if self._home_view:
+            self._home_view.progress_bar.setVisible(False)
+            self._home_view.upload_widget.setEnabled(True)
+            self._home_view.progress_bar.reset()
+            self._home_view.progress_bar.setFormat("Parsing files... %p%")
+            self._home_view.upload_widget.set_status(
+                "📁 Drag and drop log files here\nor click to browse"
+            )
+        if self._sync_button:
+            self._sync_button.setEnabled(False)
         QMessageBox.critical(self, "Error", error_msg)
-        self.upload_widget.set_status(
-            "📁 Drag and drop log files here\nor click to browse"
-        )
 
     def _on_parse_progress(self, current: int, total: int, file_path: str):
         """Update progress bar as files are parsed."""
         if total <= 0:
             return
 
-        self.progress_bar.setRange(0, total)
-        self.progress_bar.setValue(current)
-        filename = Path(file_path).name if file_path else ""
-        self.progress_bar.setFormat(
-            f"Parsing {current}/{total} file(s) - {filename}"
-        )
+        if self._home_view:
+            self._home_view.progress_bar.setRange(0, total)
+            self._home_view.progress_bar.setValue(current)
+            filename = Path(file_path).name if file_path else ""
+            self._home_view.progress_bar.setFormat(
+                f"Parsing {current}/{total} file(s) - {filename}"
+            )
 
-        if self.file_list_widget and file_path:
-            file_progress = int((current / total) * 100) if total > 0 else 0
-            self.file_list_widget.update_progress(file_path, file_progress)
+            if self._home_view.file_list_widget and file_path:
+                file_progress = int((current / total) * 100) if total > 0 else 0
+                self._home_view.file_list_widget.update_progress(file_path, file_progress)
 
     def _on_session_cleared(self):
         """Reset UI when the active session is cleared."""
-        self.progress_bar.setVisible(False)
-        self.progress_bar.reset()
-        self.progress_bar.setFormat("Parsing files... %p%")
-        self.upload_widget.setEnabled(True)
-        self.upload_widget.set_status(
-            "📁 Drag and drop log files here\nor click to browse"
-        )
+        if self._home_view:
+            self._home_view.progress_bar.setVisible(False)
+            self._home_view.progress_bar.reset()
+            self._home_view.progress_bar.setFormat("Parsing files... %p%")
+            self._home_view.upload_widget.setEnabled(True)
+            self._home_view.upload_widget.set_status(
+                "📁 Drag and drop log files here\nor click to browse"
+            )
 
-        if self.stats_widget:
-            self.stats_widget.clear()
+            if self._home_view.stats_widget:
+                self._home_view.stats_widget.clear()
 
-        if self.file_list_widget:
-            self.file_list_widget.hide_all_progress()
+            if self._home_view.file_list_widget:
+                self._home_view.file_list_widget.hide_all_progress()
 
+        # Clear all views in split pane manager
+        if self._split_pane_manager:
+            for view in self._split_pane_manager.get_all_views():
+                try:
+                    if hasattr(view, 'clear'):
+                        view.clear()
+                except (RuntimeError, AttributeError):
+                    pass
+        
+        # Disable sync button
+        if self._sync_button:
+            self._sync_button.setEnabled(False)
+        
         self._reset_child_windows(clear_only=False)
-        self._update_navigation_buttons(False)
 
     def _reset_child_windows(self, *, clear_only: bool):
         """Clear or close auxiliary windows depending on session state."""
@@ -883,11 +989,12 @@ class MainWindow(QMainWindow):
 
     def _on_clear_file(self):
         """Handle Clear File button click - reset everything."""
-        if self.file_list_widget:
-            self.file_list_widget.clear_all()
+        if self._home_view:
+            if self._home_view.file_list_widget:
+                self._home_view.file_list_widget.clear_all()
 
-        if self.stats_widget:
-            self.stats_widget.clear()
+            if self._home_view.stats_widget:
+                self._home_view.stats_widget.clear()
 
         self.session_manager.clear_session()
 

@@ -1,4 +1,4 @@
-"""Standalone window for the parsed log table with signal filters."""
+"""Embeddable log table view with signal filters and validation."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtWidgets import (
-    QMainWindow,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -33,8 +32,10 @@ from ..theme import (
 )
 
 
-class LogTableWindow(QMainWindow):
-    """Window that displays the parsed log table with filtering controls."""
+class LogTableView(QWidget):
+    """Embeddable view that displays the parsed log table with filtering controls."""
+
+    VIEW_TYPE = "log_table"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -47,6 +48,11 @@ class LogTableWindow(QMainWindow):
         self._violations: dict[str, list[ValidationViolation]] = {}
         self._loaded_rules_path: Optional[Path] = None
         self._init_ui()
+
+    @property
+    def view_type(self) -> str:
+        """Return the type identifier for this view."""
+        return self.VIEW_TYPE
 
     def set_interval_request_handler(self, handler: Callable[[str], None]):
         """Register a callback for interval plotting requests."""
@@ -221,12 +227,10 @@ class LogTableWindow(QMainWindow):
 
     # Internal helpers ---------------------------------------------------
     def _init_ui(self):
-        central = QWidget()
-        central.setObjectName("LogTableSurface")
-        central.setStyleSheet(surface_stylesheet("LogTableSurface"))
-        self.setCentralWidget(central)
+        self.setObjectName("LogTableViewSurface")
+        self.setStyleSheet(surface_stylesheet("LogTableViewSurface"))
 
-        root_layout = QVBoxLayout(central)
+        root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
@@ -357,3 +361,7 @@ class LogTableWindow(QMainWindow):
 
         if self._interval_request_handler:
             self._interval_request_handler(signal_key)
+
+
+# Backward compatibility alias
+LogTableWindow = LogTableView

@@ -1,4 +1,4 @@
-"""Integrated Map Viewer that uses actual PLC signal data from the main window."""
+"""Embeddable Map Viewer that uses actual PLC signal data."""
 
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -6,14 +6,12 @@ from datetime import date, datetime, timedelta
 
 from PySide6.QtWidgets import (
     QFileDialog,
-    QDockWidget,
-    QMainWindow,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 
 from plc_visualizer.utils import SignalData
 from tools.map_viewer import MapParser, MapRenderer, MediaControls
@@ -27,8 +25,10 @@ from ..theme import (
 )
 
 
-class IntegratedMapViewer(QMainWindow):
-    """Map viewer integrated with PLC log data from the main window."""
+class MapViewerView(QWidget):
+    """Embeddable map viewer integrated with PLC log data."""
+
+    VIEW_TYPE = "map_viewer"
 
     def __init__(
         self,
@@ -37,7 +37,7 @@ class IntegratedMapViewer(QMainWindow):
         yaml_cfg: Optional[str] = None,
         parent=None
     ):
-        """Initialize the integrated map viewer.
+        """Initialize the map viewer view.
 
         Args:
             signal_data_list: List of SignalData from the main window
@@ -47,7 +47,6 @@ class IntegratedMapViewer(QMainWindow):
         """
         super().__init__(parent)
         self.setWindowTitle("PLC Map Viewer")
-        self.resize(1200, 800)
 
         # Signal data from main window
         self._signal_data_list: List[SignalData] = signal_data_list or []
@@ -71,9 +70,7 @@ class IntegratedMapViewer(QMainWindow):
 
         # UI components
         self.renderer = MapRenderer()
-        self._build_window_chrome()
-        self._build_menu_bar()
-        self._build_media_dock()
+        self._build_ui()
 
         # Initialize map components
         self.parser = MapParser()
@@ -173,24 +170,17 @@ class IntegratedMapViewer(QMainWindow):
                 f"Failed to load map files:\n{str(e)}"
             )
 
-    def _build_menu_bar(self):
-        """Build the menu bar."""
-        menu_bar = self.menuBar()
+    @property
+    def view_type(self) -> str:
+        """Return the type identifier for this view."""
+        return self.VIEW_TYPE
 
-        # File menu
-        file_menu = menu_bar.addMenu("&File")
+    def _build_ui(self):
+        """Build the UI layout."""
+        self.setObjectName("MapViewerViewSurface")
+        self.setStyleSheet(surface_stylesheet("MapViewerViewSurface"))
 
-        # Open Map action
-        open_map_action = file_menu.addAction("&Open Map...")
-        open_map_action.triggered.connect(self.load_map_file)
-
-    def _build_window_chrome(self):
-        """Wrap the renderer with the shared themed chrome."""
-        central = QWidget()
-        central.setObjectName("MapViewerSurface")
-        central.setStyleSheet(surface_stylesheet("MapViewerSurface"))
-
-        layout = QVBoxLayout(central)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
@@ -215,17 +205,9 @@ class IntegratedMapViewer(QMainWindow):
         card_layout.addWidget(self.renderer)
         layout.addWidget(renderer_card, stretch=1)
 
-        self.setCentralWidget(central)
-
-    def _build_media_dock(self):
-        """Build the media controls dock."""
-        dock = QDockWidget(self)
-        dock.setObjectName("MediaPlayerDock")
-        dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
-        dock.setTitleBarWidget(QWidget(dock))
-        self.media_controls = MediaControls(dock)
-        dock.setWidget(self.media_controls)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
+        # Media controls (no longer a dock, just a regular widget)
+        self.media_controls = MediaControls(self)
+        layout.addWidget(self.media_controls)
 
         # Connect media control signals
         self.media_controls.btn_play.clicked.connect(self._toggle_play)
@@ -594,3 +576,8 @@ class IntegratedMapViewer(QMainWindow):
             except ValueError:
                 continue
         raise ValueError("invalid time format")
+
+
+# Backward compatibility aliases
+IntegratedMapViewer = MapViewerView
+MapViewerWindow = MapViewerView

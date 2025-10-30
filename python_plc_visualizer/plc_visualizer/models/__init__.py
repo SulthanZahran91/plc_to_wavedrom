@@ -11,6 +11,7 @@ from .chunked_log import (
     TimeChunk,
     ChunkedParsedLog,
 )
+from .bookmark import TimeBookmark
 
 __all__ = [
     "SignalType",
@@ -20,4 +21,5 @@ __all__ = [
     "ParseResult",
     "TimeChunk",
     "ChunkedParsedLog",
+    "TimeBookmark",
 ]
