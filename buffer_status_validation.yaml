@@ -5,23 +5,29 @@ validation_settings:
   max_violations_per_rule: 500
 
 validation_rules:
-  # Rule 1: Normal tray arrival sequence
+  # Rule 1: Complete NORMAL tray processing cycle
   - device_pattern: "B1ACNV*"
-    name: "Buffer Occupancy - Tray Arrival"
-    description: "Validates that buffer status becomes True after tray is detected"
+    name: "Normal Tray Processing Cycle"
+    description: "Validates complete tray processing: arrival, ID read, BCR handshake, move handshake, departure"
     enabled: true
 
     required_signals:
       - "I_LEVEL1_TRAY_EXIST"
       - "I_BUFFER_STATUS"
+      - "I_LEVEL1_CARRIER_ID"
+      - "I_LEVEL1_BCR_READ_OK"
+      - "O_LEVEL1_BCR_READ_OK_ACK"
+      - "O_TO_UNIT"
+      - "O_MOVE_REQUEST"
+      - "I_MOVE_OK"
 
     patterns:
-      - id: "TRAY_ARRIVAL_NORMAL"
+      - id: "COMPLETE_NORMAL_CYCLE"
         pattern_type: "sequence"
         severity: "error"
 
         sequence:
-          # Step 1: Tray detected
+          # Step 1: Tray arrives
           - step: 1
             signal: "I_LEVEL1_TRAY_EXIST"
             operator: "=="
@@ -29,7 +35,7 @@ validation_rules:
             description: "Tray detected at level 1"
             timeout: null
 
-          # Step 2: Buffer status should become True (within 1 second)
+          # Step 2: Buffer status should sync immediately
           - step: 2
             signal: "I_BUFFER_STATUS"
             operator: "=="
@@ -37,57 +43,76 @@ validation_rules:
             description: "Buffer status confirms occupancy"
             timeout: 1.0
 
-        on_violation:
-          message: "Buffer status did not synchronize with tray arrival"
-          reset_on_error: true
+          # Step 3: Carrier ID must be read
+          - step: 3
+            signal: "I_LEVEL1_CARRIER_ID"
+            operator: "!="
+            value: ""
+            description: "Carrier ID scanned (e.g., SDENTP490058)"
+            timeout: 10.0
 
-        on_complete:
-          message: "Tray arrival sequence normal"
-          log_success: false
+          # Step 4: Barcode read confirmation
+          - step: 4
+            signal: "I_LEVEL1_BCR_READ_OK"
+            operator: "=="
+            value: true
+            description: "Barcode read successful"
+            timeout: 5.0
 
-        options:
-          allow_intermediate_changes: true   # Allow other signals to change
-          reset_on_timeout: true
-          partial_match_severity: "warning"
+          # Step 5: System acknowledges barcode read
+          - step: 5
+            signal: "O_LEVEL1_BCR_READ_OK_ACK"
+            operator: "=="
+            value: true
+            description: "System acknowledges BCR read"
+            timeout: 1.0
 
-  # Rule 2: Normal tray departure sequence
-  - device_pattern: "B1ACNV*"
-    name: "Buffer Occupancy - Tray Departure"
-    description: "Validates that buffer status becomes False after tray leaves"
-    enabled: true
+          # Step 6: Destination unit assigned
+          - step: 6
+            signal: "O_TO_UNIT"
+            operator: ">"
+            value: 0
+            description: "Destination unit assigned (e.g., 119)"
+            timeout: 20.0
 
-    required_signals:
-      - "I_LEVEL1_TRAY_EXIST"
-      - "I_BUFFER_STATUS"
+          # Step 7: Move request initiated
+          - step: 7
+            signal: "O_MOVE_REQUEST"
+            operator: "=="
+            value: true
+            description: "Move request sent"
+            timeout: 1.0
 
-    patterns:
-      - id: "TRAY_DEPARTURE_NORMAL"
-        pattern_type: "sequence"
-        severity: "error"
+          # Step 8: Move approved
+          - step: 8
+            signal: "I_MOVE_OK"
+            operator: "=="
+            value: true
+            description: "Move request approved"
+            timeout: 2.0
 
-        sequence:
-          # Step 1: Tray no longer detected
-          - step: 1
+          # Step 9: Tray departs
+          - step: 9
             signal: "I_LEVEL1_TRAY_EXIST"
             operator: "=="
             value: false
-            description: "Tray left level 1 sensor"
-            timeout: null
+            description: "Tray leaves sensor zone"
+            timeout: 15.0
 
-          # Step 2: Buffer status should become False (within 1 second)
-          - step: 2
+          # Step 10: Buffer status clears
+          - step: 10
             signal: "I_BUFFER_STATUS"
             operator: "=="
             value: false
-            description: "Buffer status confirms empty"
+            description: "Buffer status empty"
             timeout: 1.0
 
         on_violation:
-          message: "Buffer status did not synchronize with tray departure"
+          message: "Normal tray processing cycle violated or incomplete"
           reset_on_error: true
 
         on_complete:
-          message: "Tray departure sequence normal"
+          message: "Complete normal tray cycle successful"
           log_success: false
 
         options:
@@ -95,100 +120,10 @@ validation_rules:
           reset_on_timeout: true
           partial_match_severity: "warning"
 
-  # Rule 3: Detect buffer status inconsistency - False positive
+  # Rule 2: Detect ABNORMAL - Tray leaves without processing
   - device_pattern: "B1ACNV*"
-    name: "Buffer Status Inconsistency - False Occupied"
-    description: "Detects when buffer status is True but no tray exists"
-    enabled: true
-
-    required_signals:
-      - "I_LEVEL1_TRAY_EXIST"
-      - "I_BUFFER_STATUS"
-
-    patterns:
-      - id: "BUFFER_FALSE_POSITIVE"
-        pattern_type: "sequence"
-        severity: "warning"
-
-        sequence:
-          # Buffer shows occupied
-          - step: 1
-            signal: "I_BUFFER_STATUS"
-            operator: "=="
-            value: true
-            description: "Buffer status shows occupied"
-            timeout: null
-
-          # But tray exist is still False (shouldn't happen)
-          - step: 2
-            signal: "I_LEVEL1_TRAY_EXIST"
-            operator: "=="
-            value: false
-            description: "No tray detected (INCONSISTENT)"
-            timeout: 0.5
-
-        on_violation:
-          message: "INCONSISTENCY: Buffer occupied but no tray detected"
-          reset_on_error: true
-
-        on_complete:
-          message: "WARNING: Buffer status True without tray detection"
-          log_success: true  # Log this as it's an anomaly
-
-        options:
-          allow_intermediate_changes: true
-          reset_on_timeout: false  # Don't reset on timeout - this is normal
-          partial_match_severity: "info"
-
-  # Rule 4: Detect buffer status inconsistency - False negative
-  - device_pattern: "B1ACNV*"
-    name: "Buffer Status Inconsistency - False Empty"
-    description: "Detects when tray exists but buffer status is False"
-    enabled: true
-
-    required_signals:
-      - "I_LEVEL1_TRAY_EXIST"
-      - "I_BUFFER_STATUS"
-
-    patterns:
-      - id: "BUFFER_FALSE_NEGATIVE"
-        pattern_type: "sequence"
-        severity: "warning"
-
-        sequence:
-          # Tray is detected
-          - step: 1
-            signal: "I_LEVEL1_TRAY_EXIST"
-            operator: "=="
-            value: true
-            description: "Tray detected"
-            timeout: null
-
-          # But buffer status remains False for too long (>1 second is suspicious)
-          - step: 2
-            signal: "I_BUFFER_STATUS"
-            operator: "=="
-            value: false
-            description: "Buffer status still empty (INCONSISTENT)"
-            timeout: 1.5  # Allow some time, but flag if it takes too long
-
-        on_violation:
-          message: "Normal: Buffer status updated before timeout"
-          reset_on_error: true
-
-        on_complete:
-          message: "WARNING: Tray detected but buffer status remained False"
-          log_success: true  # Log this as it's an anomaly
-
-        options:
-          allow_intermediate_changes: true
-          reset_on_timeout: false
-          partial_match_severity: "info"
-
-  # Rule 5: Complete normal cycle with carrier ID read
-  - device_pattern: "B1ACNV*"
-    name: "Complete Tray Processing Cycle"
-    description: "Validates full tray processing including barcode read"
+    name: "Abnormal - Tray Departed Without Processing"
+    description: "Detects when tray arrives but leaves before carrier ID is read"
     enabled: true
 
     required_signals:
@@ -197,20 +132,20 @@ validation_rules:
       - "I_LEVEL1_CARRIER_ID"
 
     patterns:
-      - id: "FULL_TRAY_CYCLE"
+      - id: "UNPROCESSED_TRAY_DEPARTURE"
         pattern_type: "sequence"
-        severity: "info"
+        severity: "warning"
 
         sequence:
-          # Tray arrives
+          # Step 1: Tray arrives
           - step: 1
             signal: "I_LEVEL1_TRAY_EXIST"
             operator: "=="
             value: true
-            description: "Tray arrives"
+            description: "Tray detected"
             timeout: null
 
-          # Buffer status confirms
+          # Step 2: Buffer confirms
           - step: 2
             signal: "I_BUFFER_STATUS"
             operator: "=="
@@ -218,39 +153,270 @@ validation_rules:
             description: "Buffer occupied"
             timeout: 1.0
 
-          # Carrier ID should be read (optional but expected)
+          # Step 3: Tray leaves quickly without ID read
           - step: 3
-            signal: "I_LEVEL1_CARRIER_ID"
-            operator: "!="
-            value: ""
-            description: "Carrier ID read"
-            timeout: 5.0
-
-          # Tray eventually leaves
-          - step: 4
             signal: "I_LEVEL1_TRAY_EXIST"
             operator: "=="
             value: false
-            description: "Tray departs"
-            timeout: 30.0
-
-          # Buffer status clears
-          - step: 5
-            signal: "I_BUFFER_STATUS"
-            operator: "=="
-            value: false
-            description: "Buffer empty"
-            timeout: 1.0
+            description: "Tray departed (too soon)"
+            timeout: 8.0  # If tray leaves within 8 seconds, it's abnormal
 
         on_violation:
-          message: "Tray cycle incomplete or timed out"
+          message: "Normal: Tray stayed long enough for processing"
           reset_on_error: true
 
         on_complete:
-          message: "Complete tray processing cycle successful"
+          message: "ABNORMAL: Tray departed without being processed (no ID read)"
+          log_success: true  # Log this abnormal case
+
+        options:
+          allow_intermediate_changes: true
+          reset_on_timeout: false  # Timeout is normal (tray stayed)
+          partial_match_severity: "info"
+
+  # Rule 3: Detect ABNORMAL - No Carrier ID read
+  - device_pattern: "B1ACNV*"
+    name: "Abnormal - Missing Carrier ID Read"
+    description: "Detects when tray is present but carrier ID is never read"
+    enabled: true
+
+    required_signals:
+      - "I_LEVEL1_TRAY_EXIST"
+      - "I_BUFFER_STATUS"
+      - "I_LEVEL1_CARRIER_ID"
+
+    patterns:
+      - id: "MISSING_CARRIER_ID"
+        pattern_type: "sequence"
+        severity: "warning"
+
+        sequence:
+          # Tray arrives
+          - step: 1
+            signal: "I_LEVEL1_TRAY_EXIST"
+            operator: "=="
+            value: true
+            description: "Tray present"
+            timeout: null
+
+          # Buffer confirms
+          - step: 2
+            signal: "I_BUFFER_STATUS"
+            operator: "=="
+            value: true
+            description: "Buffer occupied"
+            timeout: 1.0
+
+          # Tray departs with empty or missing carrier ID
+          - step: 3
+            signal: "I_LEVEL1_TRAY_EXIST"
+            operator: "=="
+            value: false
+            description: "Tray departed"
+            timeout: 30.0
+
+          # Carrier ID still empty
+          - step: 4
+            signal: "I_LEVEL1_CARRIER_ID"
+            operator: "=="
+            value: ""
+            description: "Carrier ID empty (ABNORMAL)"
+            timeout: 1.0
+
+        on_violation:
+          message: "Normal: Carrier ID was read successfully"
+          reset_on_error: true
+
+        on_complete:
+          message: "ABNORMAL: Tray processed without carrier ID read"
+          log_success: true
+
+        options:
+          allow_intermediate_changes: true
+          reset_on_timeout: false
+          partial_match_severity: "info"
+
+  # Rule 4: Detect ABNORMAL - No BCR handshake
+  - device_pattern: "B1ACNV*"
+    name: "Abnormal - Missing BCR Handshake"
+    description: "Detects when carrier ID exists but no BCR read handshake occurs"
+    enabled: true
+
+    required_signals:
+      - "I_LEVEL1_CARRIER_ID"
+      - "I_LEVEL1_BCR_READ_OK"
+      - "O_LEVEL1_BCR_READ_OK_ACK"
+
+    patterns:
+      - id: "MISSING_BCR_HANDSHAKE"
+        pattern_type: "sequence"
+        severity: "warning"
+
+        sequence:
+          # Carrier ID is read
+          - step: 1
+            signal: "I_LEVEL1_CARRIER_ID"
+            operator: "!="
+            value: ""
+            description: "Carrier ID exists"
+            timeout: null
+
+          # But no BCR read OK within timeout
+          - step: 2
+            signal: "I_LEVEL1_BCR_READ_OK"
+            operator: "=="
+            value: true
+            description: "Expecting BCR read confirmation"
+            timeout: 10.0
+
+        on_violation:
+          message: "ABNORMAL: Carrier ID read but no BCR handshake"
+          reset_on_error: true
+
+        on_complete:
+          message: "Normal: BCR handshake occurred"
+          log_success: false
+
+        options:
+          allow_intermediate_changes: true
+          reset_on_timeout: false
+          partial_match_severity: "info"
+
+  # Rule 5: Detect ABNORMAL - No move request
+  - device_pattern: "B1ACNV*"
+    name: "Abnormal - Missing Move Request"
+    description: "Detects when BCR handshake completes but no move request is made"
+    enabled: true
+
+    required_signals:
+      - "I_LEVEL1_BCR_READ_OK"
+      - "O_LEVEL1_BCR_READ_OK_ACK"
+      - "O_MOVE_REQUEST"
+
+    patterns:
+      - id: "MISSING_MOVE_REQUEST"
+        pattern_type: "sequence"
+        severity: "warning"
+
+        sequence:
+          # BCR handshake happens
+          - step: 1
+            signal: "I_LEVEL1_BCR_READ_OK"
+            operator: "=="
+            value: true
+            description: "BCR read OK"
+            timeout: null
+
+          - step: 2
+            signal: "O_LEVEL1_BCR_READ_OK_ACK"
+            operator: "=="
+            value: true
+            description: "BCR acknowledged"
+            timeout: 1.0
+
+          # But no move request within reasonable time
+          - step: 3
+            signal: "O_MOVE_REQUEST"
+            operator: "=="
+            value: true
+            description: "Expecting move request"
+            timeout: 20.0
+
+        on_violation:
+          message: "ABNORMAL: BCR handshake completed but no move request"
+          reset_on_error: true
+
+        on_complete:
+          message: "Normal: Move request sent after BCR handshake"
+          log_success: false
+
+        options:
+          allow_intermediate_changes: true
+          reset_on_timeout: false
+          partial_match_severity: "info"
+
+  # Rule 6: Buffer status synchronization check (arrival)
+  - device_pattern: "B1ACNV*"
+    name: "Buffer Status Sync - Arrival"
+    description: "Validates buffer status synchronizes with tray arrival"
+    enabled: true
+
+    required_signals:
+      - "I_LEVEL1_TRAY_EXIST"
+      - "I_BUFFER_STATUS"
+
+    patterns:
+      - id: "BUFFER_ARRIVAL_SYNC"
+        pattern_type: "sequence"
+        severity: "error"
+
+        sequence:
+          - step: 1
+            signal: "I_LEVEL1_TRAY_EXIST"
+            operator: "=="
+            value: true
+            description: "Tray arrives"
+            timeout: null
+
+          - step: 2
+            signal: "I_BUFFER_STATUS"
+            operator: "=="
+            value: true
+            description: "Buffer status must sync"
+            timeout: 0.5
+
+        on_violation:
+          message: "Buffer status did not sync with tray arrival"
+          reset_on_error: true
+
+        on_complete:
+          message: "Buffer arrival sync OK"
           log_success: false
 
         options:
           allow_intermediate_changes: true
           reset_on_timeout: true
-          partial_match_severity: "info"
+          partial_match_severity: "warning"
+
+  # Rule 7: Buffer status synchronization check (departure)
+  - device_pattern: "B1ACNV*"
+    name: "Buffer Status Sync - Departure"
+    description: "Validates buffer status synchronizes with tray departure"
+    enabled: true
+
+    required_signals:
+      - "I_LEVEL1_TRAY_EXIST"
+      - "I_BUFFER_STATUS"
+
+    patterns:
+      - id: "BUFFER_DEPARTURE_SYNC"
+        pattern_type: "sequence"
+        severity: "error"
+
+        sequence:
+          - step: 1
+            signal: "I_LEVEL1_TRAY_EXIST"
+            operator: "=="
+            value: false
+            description: "Tray departs"
+            timeout: null
+
+          - step: 2
+            signal: "I_BUFFER_STATUS"
+            operator: "=="
+            value: false
+            description: "Buffer status must clear"
+            timeout: 0.5
+
+        on_violation:
+          message: "Buffer status did not sync with tray departure"
+          reset_on_error: true
+
+        on_complete:
+          message: "Buffer departure sync OK"
+          log_success: false
+
+        options:
+          allow_intermediate_changes: true
+          reset_on_timeout: true
+          partial_match_severity: "warning"
