@@ -31,3 +31,4 @@ test_data/random.log
 *.rej
 *.orig
 AGENTS.MD
+python_plc_visualizer/tools/map_viewer/mappings_and_rules.yaml
