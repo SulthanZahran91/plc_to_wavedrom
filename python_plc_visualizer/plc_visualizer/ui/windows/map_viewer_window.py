@@ -1,4 +1,4 @@
-"""Integrated Map Viewer that uses actual PLC signal data from the main window."""
+"""Embeddable Map Viewer that uses actual PLC signal data."""
 
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -6,16 +6,16 @@ from datetime import date, datetime, timedelta
 
 from PySide6.QtWidgets import (
     QFileDialog,
-    QDockWidget,
-    QMainWindow,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QKeyEvent
 
 from plc_visualizer.utils import SignalData
+from plc_visualizer.app.session_manager import SessionManager
 from tools.map_viewer import MapParser, MapRenderer, MediaControls
 from tools.map_viewer.state_model import UnitStateModel, SignalEvent
 from tools.map_viewer.config_loader import load_mapping_and_policy
@@ -27,19 +27,23 @@ from ..theme import (
 )
 
 
-class IntegratedMapViewer(QMainWindow):
-    """Map viewer integrated with PLC log data from the main window."""
+class MapViewerView(QWidget):
+    """Embeddable map viewer integrated with PLC log data."""
+
+    VIEW_TYPE = "map_viewer"
 
     def __init__(
         self,
+        session_manager: SessionManager,
         signal_data_list: Optional[List[SignalData]] = None,
         xml_path: Optional[str] = None,
         yaml_cfg: Optional[str] = None,
         parent=None
     ):
-        """Initialize the integrated map viewer.
+        """Initialize the map viewer view.
 
         Args:
+            session_manager: Session manager for signal coordination
             signal_data_list: List of SignalData from the main window
             xml_path: Path to the XML map file
             yaml_cfg: Path to the YAML configuration file
@@ -47,7 +51,9 @@ class IntegratedMapViewer(QMainWindow):
         """
         super().__init__(parent)
         self.setWindowTitle("PLC Map Viewer")
-        self.resize(1200, 800)
+
+        # Session manager
+        self._session_manager = session_manager
 
         # Signal data from main window
         self._signal_data_list: List[SignalData] = signal_data_list or []
@@ -71,9 +77,7 @@ class IntegratedMapViewer(QMainWindow):
 
         # UI components
         self.renderer = MapRenderer()
-        self._build_window_chrome()
-        self._build_menu_bar()
-        self._build_media_dock()
+        self._build_ui()
 
         # Initialize map components
         self.parser = MapParser()
@@ -88,6 +92,13 @@ class IntegratedMapViewer(QMainWindow):
         # Calculate time range for media controls (after UI is built)
         if self._signal_data_list:
             self._update_time_range()
+        
+        # Connect to session manager signals
+        self._connect_session_signals()
+    
+    def _connect_session_signals(self):
+        """Connect session manager signals."""
+        self._session_manager.sync_requested.connect(self._on_sync_requested)
 
     def _try_load_defaults(self) -> bool:
         """Try to load default map files."""
@@ -173,24 +184,17 @@ class IntegratedMapViewer(QMainWindow):
                 f"Failed to load map files:\n{str(e)}"
             )
 
-    def _build_menu_bar(self):
-        """Build the menu bar."""
-        menu_bar = self.menuBar()
+    @property
+    def view_type(self) -> str:
+        """Return the type identifier for this view."""
+        return self.VIEW_TYPE
 
-        # File menu
-        file_menu = menu_bar.addMenu("&File")
+    def _build_ui(self):
+        """Build the UI layout."""
+        self.setObjectName("MapViewerViewSurface")
+        self.setStyleSheet(surface_stylesheet("MapViewerViewSurface"))
 
-        # Open Map action
-        open_map_action = file_menu.addAction("&Open Map...")
-        open_map_action.triggered.connect(self.load_map_file)
-
-    def _build_window_chrome(self):
-        """Wrap the renderer with the shared themed chrome."""
-        central = QWidget()
-        central.setObjectName("MapViewerSurface")
-        central.setStyleSheet(surface_stylesheet("MapViewerSurface"))
-
-        layout = QVBoxLayout(central)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
@@ -215,17 +219,9 @@ class IntegratedMapViewer(QMainWindow):
         card_layout.addWidget(self.renderer)
         layout.addWidget(renderer_card, stretch=1)
 
-        self.setCentralWidget(central)
-
-    def _build_media_dock(self):
-        """Build the media controls dock."""
-        dock = QDockWidget(self)
-        dock.setObjectName("MediaPlayerDock")
-        dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
-        dock.setTitleBarWidget(QWidget(dock))
-        self.media_controls = MediaControls(dock)
-        dock.setWidget(self.media_controls)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
+        # Media controls (no longer a dock, just a regular widget)
+        self.media_controls = MediaControls(self)
+        layout.addWidget(self.media_controls)
 
         # Connect media control signals
         self.media_controls.btn_play.clicked.connect(self._toggle_play)
@@ -256,6 +252,65 @@ class IntegratedMapViewer(QMainWindow):
 
         print(f"[MapViewer] Updated with {len(signal_data_list)} signals")
 
+    def get_current_time(self):
+        """Get the current playback time position."""
+        return self._current_time
+    
+    def _on_sync_requested(self, target_time: datetime):
+        """Handle sync request from session manager."""
+        # Pause playback if currently playing
+        if self._is_playing:
+            self._pause()
+        
+        # Jump to the target time
+        self.update_time_position(target_time)
+    
+    def keyPressEvent(self, event: QKeyEvent):
+        """Handle keyboard shortcuts for navigation."""
+        key = event.key()
+        modifiers = event.modifiers()
+        
+        # No modifiers required for these shortcuts
+        if modifiers == Qt.NoModifier:
+            # Left Arrow - Skip backward 10 seconds
+            if key == Qt.Key_Left:
+                self._skip_backward()
+                event.accept()
+                return
+            
+            # Right Arrow - Skip forward 10 seconds
+            if key == Qt.Key_Right:
+                self._skip_forward()
+                event.accept()
+                return
+            
+            # Space - Play/Pause
+            if key == Qt.Key_Space:
+                self._toggle_play()
+                event.accept()
+                return
+            
+            # Home - Jump to start of data
+            if key == Qt.Key_Home:
+                if self._start_time:
+                    self._current_time = self._start_time
+                    self.update_time_position(self._current_time)
+                    self._update_media_controls()
+                event.accept()
+                return
+            
+            # End - Jump to end of data
+            if key == Qt.Key_End:
+                if self._end_time:
+                    self._current_time = self._end_time
+                    self.update_time_position(self._current_time)
+                    self._update_media_controls()
+                event.accept()
+                return
+        
+        # Let parent handle other events
+        super().keyPressEvent(event)
+    
     def update_time_position(self, current_time: datetime):
         """Update the map to show the state at a specific time.
 
@@ -594,3 +649,8 @@ class IntegratedMapViewer(QMainWindow):
             except ValueError:
                 continue
         raise ValueError("invalid time format")
+
+
+# Backward compatibility aliases
+IntegratedMapViewer = MapViewerView
+MapViewerWindow = MapViewerView

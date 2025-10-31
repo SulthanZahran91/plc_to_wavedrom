@@ -5,15 +5,17 @@ from __future__ import annotations
 import atexit
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from plc_visualizer.models import ParseResult, ParsedLog
+from plc_visualizer.models import ParseResult, ParsedLog, TimeBookmark
 from plc_visualizer.parsers import parser_registry
 from plc_visualizer.utils import (
     SignalData,
+    ViewportState,
     merge_parse_results,
     process_signals_for_waveform,
 )
@@ -95,6 +97,13 @@ class SessionManager(QObject):
     parse_started = Signal(list)  # file paths
     parse_progress = Signal(int, int, str)
     parse_failed = Signal(str)
+    
+    # Bookmark signals
+    bookmarks_changed = Signal()  # Emitted when bookmark list changes
+    bookmark_jump_requested = Signal(datetime)  # Emitted when jumping to a bookmark
+    
+    # Time sync signals
+    sync_requested = Signal(datetime)  # Emitted when sync all views is requested
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -105,6 +114,13 @@ class SessionManager(QObject):
         self._signal_data_list: list[SignalData] = []
         self._signal_data_map: dict[str, SignalData] = {}
         self._file_results: Dict[str, ParseResult] = {}
+        
+        # Shared viewport state for time synchronization
+        self._viewport_state = ViewportState(self)
+        
+        # Bookmark management
+        self._bookmarks: list[TimeBookmark] = []
+        self._current_bookmark_index: int = -1
 
     # ------------------------------------------------------------------ Properties
     @property
@@ -130,6 +146,16 @@ class SessionManager(QObject):
     @property
     def is_parsing(self) -> bool:
         return bool(self._parser_thread and self._parser_thread.isRunning())
+    
+    @property
+    def viewport_state(self) -> ViewportState:
+        """Get the shared viewport state for time synchronization."""
+        return self._viewport_state
+    
+    @property
+    def bookmarks(self) -> list[TimeBookmark]:
+        """Get all bookmarks sorted by timestamp."""
+        return sorted(self._bookmarks)
 
     # ------------------------------------------------------------------ Public API
     def parse_files(self, file_paths: list[str]) -> bool:
@@ -166,6 +192,109 @@ class SessionManager(QObject):
         """Remove a file from the active list (e.g., when user deletes it)."""
         normalized = str(Path(file_path))
         self._current_files = [path for path in self._current_files if path != normalized]
+    
+    # ------------------------------------------------------------------ Bookmarks
+    def add_bookmark(self, timestamp: datetime, label: str, description: str = "") -> TimeBookmark:
+        """Add a new bookmark at the specified timestamp.
+        
+        Args:
+            timestamp: Time to bookmark
+            label: Short label for the bookmark
+            description: Optional detailed description
+            
+        Returns:
+            The created bookmark
+        """
+        bookmark = TimeBookmark(
+            timestamp=timestamp,
+            label=label,
+            description=description
+        )
+        self._bookmarks.append(bookmark)
+        self._bookmarks.sort()  # Keep sorted by timestamp
+        self.bookmarks_changed.emit()
+        return bookmark
+    
+    def remove_bookmark(self, index: int) -> bool:
+        """Remove bookmark at the specified index.
+        
+        Args:
+            index: Index in the sorted bookmark list
+            
+        Returns:
+            True if removed successfully, False otherwise
+        """
+        sorted_bookmarks = self.bookmarks
+        if index < 0 or index >= len(sorted_bookmarks):
+            return False
+        
+        bookmark_to_remove = sorted_bookmarks[index]
+        self._bookmarks.remove(bookmark_to_remove)
+        self.bookmarks_changed.emit()
+        return True
+    
+    def jump_to_bookmark(self, index: int) -> bool:
+        """Jump to the bookmark at the specified index.
+        
+        Args:
+            index: Index in the sorted bookmark list
+            
+        Returns:
+            True if jumped successfully, False otherwise
+        """
+        sorted_bookmarks = self.bookmarks
+        if index < 0 or index >= len(sorted_bookmarks):
+            return False
+        
+        bookmark = sorted_bookmarks[index]
+        self._current_bookmark_index = index
+        self.bookmark_jump_requested.emit(bookmark.timestamp)
+        return True
+    
+    def next_bookmark(self) -> bool:
+        """Jump to the next bookmark in chronological order.
+        
+        Returns:
+            True if jumped, False if at end or no bookmarks
+        """
+        if not self._bookmarks:
+            return False
+        
+        next_index = self._current_bookmark_index + 1
+        if next_index >= len(self._bookmarks):
+            next_index = 0  # Wrap around
+        
+        return self.jump_to_bookmark(next_index)
+    
+    def prev_bookmark(self) -> bool:
+        """Jump to the previous bookmark in chronological order.
+        
+        Returns:
+            True if jumped, False if at start or no bookmarks
+        """
+        if not self._bookmarks:
+            return False
+        
+        prev_index = self._current_bookmark_index - 1
+        if prev_index < 0:
+            prev_index = len(self._bookmarks) - 1  # Wrap around
+        
+        return self.jump_to_bookmark(prev_index)
+    
+    def clear_bookmarks(self):
+        """Remove all bookmarks."""
+        self._bookmarks.clear()
+        self._current_bookmark_index = -1
+        self.bookmarks_changed.emit()
+    
+    # ------------------------------------------------------------------ Time Sync
+    def sync_all_views(self, target_time: datetime):
+        """Synchronize all views to the specified time.
+        
+        Args:
+            target_time: The time to sync all views to
+        """
+        self.sync_requested.emit(target_time)
 
     # ------------------------------------------------------------------ Internals
     def _on_parse_finished(
@@ -197,3 +326,4 @@ class SessionManager(QObject):
         self._signal_data_list = []
         self._signal_data_map = {}
         self._file_results = {}
+        self.clear_bookmarks()

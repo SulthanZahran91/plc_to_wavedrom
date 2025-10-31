@@ -13,14 +13,40 @@ Usage:
 import sys
 import csv
 import argparse
+import logging
 from pathlib import Path
 from datetime import datetime
+from typing import Iterable, Iterator, List
 from PySide6.QtWidgets import QApplication, QMainWindow, QDockWidget, QWidget, QVBoxLayout, QLabel
 from PySide6.QtCore import Qt, QTimer
 
-from map_viewer import MapParser, MapRenderer, MediaControls
-from map_viewer.state_model import UnitStateModel, SignalEvent
-from map_viewer.config_loader import load_mapping_and_policy
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+try:
+    from tools.map_viewer import MapParser, MapRenderer, MediaControls
+    from tools.map_viewer.state_model import UnitStateModel, SignalEvent
+    from tools.map_viewer.config_loader import load_mapping_and_policy
+except ModuleNotFoundError:
+    # Fallback for environments that still package map_viewer as a top-level module
+    from map_viewer import MapParser, MapRenderer, MediaControls
+    from map_viewer.state_model import UnitStateModel, SignalEvent
+    from map_viewer.config_loader import load_mapping_and_policy
+
+
+def _resolve_resource(path_value: Path, base_dir: Path) -> Path:
+    """Resolve maps/signals/config paths relative to the script if needed."""
+    if path_value.is_absolute():
+        return path_value
+
+    if path_value.exists():
+        return path_value
+
+    candidate = base_dir / path_value
+    if candidate.exists():
+        return candidate
+    return path_value
 
 
 class SignalPlayer:
@@ -34,31 +60,43 @@ class SignalPlayer:
         self.playback_speed = 1.0
 
         # Load CSV
-        with open(csv_path, 'r') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
+        with open(csv_path, 'r', newline='') as f:
+            reader = csv.reader(f)
+            first_row = next(reader, None)
+            if first_row is None:
+                return
+
+            header_map = self._detect_header(first_row)
+            data_iter: Iterable[List[str]]
+            if header_map:
+                data_iter = reader
+            else:
+                data_iter = self._chain_first(first_row, reader)
+                header_map = {
+                    'timestamp': 0,
+                    'deviceid': 1,
+                    'signal': 2,
+                    'value': 3
+                }
+
+            for row in data_iter:
+                if len(row) < 4:
+                    continue
+
+                timestamp_raw = row[header_map['timestamp']].strip()
+                device_id = row[header_map['deviceid']].strip()
+                signal_name = row[header_map['signal']].strip()
+                value_raw = row[header_map['value']].strip()
+
                 # Parse timestamp
-                try:
-                    ts = datetime.strptime(row['Timestamp'], '%Y-%m-%d %H:%M:%S.%f')
-                except ValueError:
-                    ts = datetime.strptime(row['Timestamp'], '%Y-%m-%d %H:%M:%S')
+                ts = self._parse_timestamp(timestamp_raw)
 
                 # Convert value to appropriate type
-                value = row['Value']
-                try:
-                    # Try int first
-                    value = int(value)
-                except ValueError:
-                    try:
-                        # Try float
-                        value = float(value)
-                    except ValueError:
-                        # Keep as string
-                        pass
+                value = self._convert_value(value_raw)
 
                 event = SignalEvent(
-                    device_id=row['DeviceID'],
-                    signal_name=row['Signal'],
+                    device_id=device_id,
+                    signal_name=signal_name,
                     value=value,
                     timestamp=ts.timestamp()
                 )
@@ -71,7 +109,38 @@ class SignalPlayer:
             # Calculate relative times from first event
             self.start_time = self.events[0].timestamp
             self.end_time = self.events[-1].timestamp
-            self.duration = self.end_time - self.start_time
+        self.duration = self.end_time - self.start_time
+
+    @staticmethod
+    def _chain_first(first_row: List[str], rest: Iterator[List[str]]) -> Iterator[List[str]]:
+        yield first_row
+        yield from rest
+
+    @staticmethod
+    def _detect_header(first_row: List[str]) -> dict | None:
+        normalized = [col.strip().lower() for col in first_row]
+        expected = ['timestamp', 'deviceid', 'signal', 'value']
+        if normalized[:4] == expected:
+            return {name: idx for idx, name in enumerate(expected)}
+        return None
+
+    @staticmethod
+    def _parse_timestamp(value: str) -> datetime:
+        for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S'):
+            try:
+                return datetime.strptime(value, fmt)
+            except ValueError:
+                continue
+        raise ValueError(f"Unsupported timestamp format: {value}")
+
+    @staticmethod
+    def _convert_value(value: str):
+        for caster in (int, float):
+            try:
+                return caster(value)
+            except ValueError:
+                continue
+        return value
 
     def get_next_event(self) -> SignalEvent | None:
         """Get the next event to play."""
@@ -286,6 +355,8 @@ class PlaybackWindow(QMainWindow):
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+
     parser = argparse.ArgumentParser(
         description='Playback demo for map viewer',
         formatter_class=argparse.RawDescriptionHelpFormatter
@@ -320,6 +391,10 @@ def main():
     )
 
     args = parser.parse_args()
+    script_dir = Path(__file__).parent
+    args.map = _resolve_resource(args.map, script_dir)
+    args.signals = _resolve_resource(args.signals, script_dir)
+    args.config = _resolve_resource(args.config, script_dir)
 
     # Check files exist
     if not args.map.exists():

@@ -1,4 +1,4 @@
-"""Standalone window for viewing the timing diagram with signal filters."""
+"""Embeddable timing diagram view with signal filters."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from datetime import timedelta
 from typing import Callable, Optional
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
-    QMainWindow,
     QWidget,
     QSplitter,
     QVBoxLayout,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from plc_visualizer.models import ParsedLog
 from plc_visualizer.utils import SignalData, ViewportState
+from plc_visualizer.app.session_manager import SessionManager
 from ..components.waveform.waveform_view import WaveformView
 from ..components.waveform.zoom_controls import ZoomControls
 from ..components.waveform.pan_controls import PanControls
@@ -24,10 +25,12 @@ from ..components.signal_filter_widget import SignalFilterWidget
 from ..theme import create_header_bar, card_panel_styles, surface_stylesheet
 
 
-class TimingDiagramWindow(QMainWindow):
-    """Window that hosts the waveform view alongside signal filters."""
+class TimingDiagramView(QWidget):
+    """Embeddable view that hosts the waveform view alongside signal filters."""
 
-    def __init__(self, parent=None):
+    VIEW_TYPE = "timing_diagram"
+
+    def __init__(self, viewport_state: ViewportState, session_manager: SessionManager, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Timing Diagram")
         self._parsed_log: Optional[ParsedLog] = None
@@ -35,10 +38,17 @@ class TimingDiagramWindow(QMainWindow):
         self._signal_data_map: dict[str, SignalData] = {}
         self._interval_request_handler: Optional[Callable[[str], None]] = None
 
-        self._viewport_state = ViewportState(self)
+        self._viewport_state = viewport_state
+        self._session_manager = session_manager
         self._init_ui()
         self._connect_viewport_signals()
+        self._connect_session_signals()
         self._update_controls_enabled(False)
+
+    @property
+    def view_type(self) -> str:
+        """Return the type identifier for this view."""
+        return self.VIEW_TYPE
 
     # Public API ---------------------------------------------------------
     @property
@@ -49,6 +59,83 @@ class TimingDiagramWindow(QMainWindow):
     def set_interval_request_handler(self, handler: Callable[[str], None]):
         """Forward interval plotting requests to the provided handler."""
         self._interval_request_handler = handler
+    
+    def get_current_time(self):
+        """Get the current time position from the viewport."""
+        if not self._viewport_state:
+            return None
+        visible_range = self._viewport_state.visible_time_range
+        if visible_range:
+            return visible_range[0]  # Use start of visible range
+        return None
+    
+    def keyPressEvent(self, event: QKeyEvent):
+        """Handle keyboard shortcuts for navigation."""
+        key = event.key()
+        modifiers = event.modifiers()
+        
+        # No modifiers required for these shortcuts
+        if modifiers == Qt.NoModifier:
+            # Left Arrow - Pan left (backward in time)
+            if key == Qt.Key_Left:
+                self._on_pan_left()
+                event.accept()
+                return
+            
+            # Right Arrow - Pan right (forward in time)
+            if key == Qt.Key_Right:
+                self._on_pan_right()
+                event.accept()
+                return
+            
+            # Up Arrow - Scroll up through signals
+            if key == Qt.Key_Up:
+                scrollbar = self.waveform_view.verticalScrollBar()
+                if scrollbar:
+                    scrollbar.setValue(scrollbar.value() - scrollbar.singleStep())
+                event.accept()
+                return
+            
+            # Down Arrow - Scroll down through signals
+            if key == Qt.Key_Down:
+                scrollbar = self.waveform_view.verticalScrollBar()
+                if scrollbar:
+                    scrollbar.setValue(scrollbar.value() + scrollbar.singleStep())
+                event.accept()
+                return
+            
+            # Home - Jump to start of data
+            if key == Qt.Key_Home:
+                full_range = self._viewport_state.full_time_range
+                if full_range:
+                    start_time, _ = full_range
+                    self._on_jump_to_time(start_time)
+                event.accept()
+                return
+            
+            # End - Jump to end of data
+            if key == Qt.Key_End:
+                full_range = self._viewport_state.full_time_range
+                if full_range:
+                    _, end_time = full_range
+                    self._on_jump_to_time(end_time)
+                event.accept()
+                return
+            
+            # + or = - Zoom in
+            if key in (Qt.Key_Plus, Qt.Key_Equal):
+                self._viewport_state.zoom_in(factor=1.5)
+                event.accept()
+                return
+            
+            # - - Zoom out
+            if key == Qt.Key_Minus:
+                self._viewport_state.zoom_out(factor=1.5)
+                event.accept()
+                return
+        
+        # Let parent handle other events
+        super().keyPressEvent(event)
 
     def clear(self):
         """Remove any loaded data and disable controls."""
@@ -92,12 +179,10 @@ class TimingDiagramWindow(QMainWindow):
 
     # Internal helpers ---------------------------------------------------
     def _init_ui(self):
-        central = QWidget()
-        central.setObjectName("TimingWindowSurface")
-        central.setStyleSheet(surface_stylesheet("TimingWindowSurface"))
-        self.setCentralWidget(central)
+        self.setObjectName("TimingViewSurface")
+        self.setStyleSheet(surface_stylesheet("TimingViewSurface"))
 
-        root_layout = QVBoxLayout(central)
+        root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
@@ -183,6 +268,10 @@ class TimingDiagramWindow(QMainWindow):
     def _connect_viewport_signals(self):
         self._viewport_state.duration_changed.connect(self._on_viewport_duration_changed)
         self._viewport_state.time_range_changed.connect(self._on_viewport_time_range_changed)
+    
+    def _connect_session_signals(self):
+        """Connect session manager signals."""
+        self._session_manager.sync_requested.connect(self._on_sync_requested)
 
     def _update_controls_enabled(self, enabled: bool):
         self.zoom_controls.set_enabled(enabled)
@@ -217,6 +306,10 @@ class TimingDiagramWindow(QMainWindow):
             self._viewport_state.pan(delta)
 
     def _on_jump_to_time(self, target_time):
+        self._viewport_state.jump_to_time(target_time)
+    
+    def _on_sync_requested(self, target_time):
+        """Handle sync request from session manager."""
         self._viewport_state.jump_to_time(target_time)
 
     def _on_scroll_changed(self, position: float):
@@ -294,3 +387,7 @@ class TimingDiagramWindow(QMainWindow):
 
         if self._interval_request_handler:
             self._interval_request_handler(signal_key)
+
+
+# Backward compatibility alias
+TimingDiagramWindow = TimingDiagramView

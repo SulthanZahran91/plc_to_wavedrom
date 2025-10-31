@@ -1,12 +1,13 @@
-"""Standalone window for the parsed log table with signal filters."""
+"""Embeddable log table view with signal filters and validation."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Callable, Optional
+from bisect import bisect_left
+from datetime import datetime
 
 from PySide6.QtWidgets import (
-    QMainWindow,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -16,9 +17,11 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
 )
+from PySide6.QtCore import Qt
 
 from plc_visualizer.models import ParsedLog
 from plc_visualizer.utils import SignalData
+from plc_visualizer.app.session_manager import SessionManager
 from plc_visualizer.validation import SignalValidator, ValidationViolation
 from ..components.signal_filter_widget import SignalFilterWidget
 from ..components.data_table_widget import DataTableWidget
@@ -33,10 +36,12 @@ from ..theme import (
 )
 
 
-class LogTableWindow(QMainWindow):
-    """Window that displays the parsed log table with filtering controls."""
+class LogTableView(QWidget):
+    """Embeddable view that displays the parsed log table with filtering controls."""
 
-    def __init__(self, parent=None):
+    VIEW_TYPE = "log_table"
+
+    def __init__(self, session_manager: SessionManager, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Log Table")
         self._parsed_log: Optional[ParsedLog] = None
@@ -46,7 +51,14 @@ class LogTableWindow(QMainWindow):
         self._validator: Optional[SignalValidator] = None
         self._violations: dict[str, list[ValidationViolation]] = {}
         self._loaded_rules_path: Optional[Path] = None
+        self._session_manager = session_manager
         self._init_ui()
+        self._connect_session_signals()
+
+    @property
+    def view_type(self) -> str:
+        """Return the type identifier for this view."""
+        return self.VIEW_TYPE
 
     def set_interval_request_handler(self, handler: Callable[[str], None]):
         """Register a callback for interval plotting requests."""
@@ -73,6 +85,72 @@ class LogTableWindow(QMainWindow):
 
         self.signal_filter.set_signals(signal_data)
         self.data_table.set_data(parsed_log)
+    
+    def get_current_time(self):
+        """Get the timestamp of the currently selected row, or None if no selection."""
+        if not self.data_table or not self.data_table.table_view:
+            return None
+        
+        # Get the selected row
+        selection = self.data_table.table_view.selectionModel()
+        if not selection or not selection.hasSelection():
+            return None
+        
+        selected_indexes = selection.selectedRows()
+        if not selected_indexes:
+            return None
+        
+        # Get the first selected row
+        row_index = selected_indexes[0].row()
+        
+        # Get the entry from the model
+        model = self.data_table.model
+        if row_index < 0 or row_index >= model.rowCount():
+            return None
+        
+        # Access the internal _entries list to get the timestamp
+        if hasattr(model, '_entries') and row_index < len(model._entries):
+            entry = model._entries[row_index]
+            return entry.timestamp
+        
+        return None
+    
+    def _connect_session_signals(self):
+        """Connect session manager signals."""
+        self._session_manager.sync_requested.connect(self._on_sync_requested)
+    
+    def _on_sync_requested(self, target_time: datetime):
+        """Handle sync request from session manager."""
+        if not self._parsed_log or not self.data_table or not self.data_table.table_view:
+            return
+        
+        model = self.data_table.model
+        if not hasattr(model, '_entries') or not model._entries:
+            return
+        
+        entries = model._entries
+        
+        # Binary search for first entry at or after target_time
+        # Entries should be sorted by timestamp
+        idx = bisect_left([e.timestamp for e in entries], target_time)
+        
+        # If we're past the end, go to the last entry
+        if idx >= len(entries):
+            idx = len(entries) - 1
+        
+        # Select and scroll to the row
+        table_view = self.data_table.table_view
+        selection_model = table_view.selectionModel()
+        
+        # Create index for the first column of the target row
+        model_index = model.index(idx, 0)
+        
+        # Clear current selection and select the target row
+        selection_model.clearSelection()
+        selection_model.select(model_index, selection_model.SelectionFlag.Select | selection_model.SelectionFlag.Rows)
+        
+        # Scroll to the selected row (position it in the center if possible)
+        table_view.scrollTo(model_index, table_view.ScrollHint.PositionAtCenter)
 
     def load_validation_rules(self, rules_path: str | Path = None) -> bool:
         """Load validation rules from a YAML file.
@@ -221,12 +299,10 @@ class LogTableWindow(QMainWindow):
 
     # Internal helpers ---------------------------------------------------
     def _init_ui(self):
-        central = QWidget()
-        central.setObjectName("LogTableSurface")
-        central.setStyleSheet(surface_stylesheet("LogTableSurface"))
-        self.setCentralWidget(central)
+        self.setObjectName("LogTableViewSurface")
+        self.setStyleSheet(surface_stylesheet("LogTableViewSurface"))
 
-        root_layout = QVBoxLayout(central)
+        root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
@@ -357,3 +433,7 @@ class LogTableWindow(QMainWindow):
 
         if self._interval_request_handler:
             self._interval_request_handler(signal_key)
+
+
+# Backward compatibility alias
+LogTableWindow = LogTableView
