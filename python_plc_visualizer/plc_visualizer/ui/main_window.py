@@ -710,7 +710,7 @@ class MainWindow(QMainWindow):
         # Create interval view and add as new tab
         view = SignalIntervalDialog(signal_data, self)
         title = f"Intervals: {signal_data.display_label}"
-        self.split_pane_manager.add_view(view, title)
+        self._split_pane_manager.add_view(view, title)
 
     def _on_map_viewer_time_update(self, start_time, _end_time):
         """Update map viewer when waveform time changes."""
