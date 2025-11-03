@@ -41,10 +41,11 @@ class StatsWidget(QWidget):
         self.devices_label = QLabel("Unique Devices: -")
         self.signals_label = QLabel("Unique Signals: -")
         self.time_range_label = QLabel("Time Range: -")
+        self.processing_time_label = QLabel("Processing Time: -")
         self.errors_label = QLabel("Errors: -")
 
         for label in [self.entries_label, self.devices_label, self.signals_label,
-                      self.time_range_label, self.errors_label]:
+                      self.time_range_label, self.processing_time_label, self.errors_label]:
             label.setStyleSheet("padding: 5px; font-size: 13px;")
             stats_layout.addWidget(label)
 
@@ -105,6 +106,16 @@ class StatsWidget(QWidget):
             self.devices_label.setText("Unique Devices: 0")
             self.signals_label.setText("Unique Signals: 0")
             self.time_range_label.setText("Time Range: -")
+        
+        # Update processing time
+        if result.processing_time is not None:
+            if result.processing_time < 1.0:
+                time_str = f"{result.processing_time * 1000:.0f}ms"
+            else:
+                time_str = f"{result.processing_time:.2f}s"
+            self.processing_time_label.setText(f"Processing Time: {time_str}")
+        else:
+            self.processing_time_label.setText("Processing Time: -")
 
         # Update error information
         if result.has_errors:

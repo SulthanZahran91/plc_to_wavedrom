@@ -25,8 +25,6 @@ from PySide6.QtCore import Qt, QRectF, QSize, QPointF, QSignalBlocker
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QCheckBox,
-    QDialog,
-    QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
@@ -672,22 +670,22 @@ class IntervalPlotWidget(QWidget):
 # Dialog (with radio buttons and time-window binning)
 # =========================
 
-class SignalIntervalDialog(QDialog):
+class SignalIntervalDialog(QWidget):
     MAX_TABLE_ROWS = 5000
-    """Dialog that presents interval statistics and a binned line plot with mode switches."""
+    """Embeddable view that presents interval statistics and a binned line plot with mode switches."""
+    
+    VIEW_TYPE = "signal_interval"
 
     def __init__(self, signal_data: SignalData, parent: QWidget | None = None):
-        # Guard: only parent QDialog if it's a QWidget; else None to avoid type errors
-        qt_parent = parent if isinstance(parent, QWidget) else None
-        super().__init__(qt_parent)
+        super().__init__(parent)
 
         self.signal_data = signal_data
         self._bin_duration_user_overridden = False
 
         self.setWindowTitle(f"Transition Intervals — {signal_data.display_label}")
-        self.resize(980, 720)
+        self.setObjectName("IntervalViewSurface")
         self.setStyleSheet(f"""
-            QDialog {{
+            QWidget#IntervalViewSurface {{
                 background-color: {SURFACE_BG};
             }}
         """)
@@ -820,15 +818,6 @@ class SignalIntervalDialog(QDialog):
         table_layout.addWidget(self.table)
         content_layout.addWidget(table_card, stretch=1)
 
-        # ---- Buttons
-        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        btns.rejected.connect(self.reject)
-        btns.accepted.connect(self.accept)
-        close_btn = btns.button(QDialogButtonBox.StandardButton.Close)
-        if close_btn is not None:
-            apply_secondary_button_style(close_btn)
-        content_layout.addWidget(btns)
-
         # Wire events
         self.rb_change.toggled.connect(self._on_mode_changed)
         self.rb_pulse.toggled.connect(self._on_mode_changed)
@@ -844,6 +833,11 @@ class SignalIntervalDialog(QDialog):
 
         # initial build
         self._rebuild_and_refresh()
+    
+    @property
+    def view_type(self) -> str:
+        """Return the type identifier for this view."""
+        return self.VIEW_TYPE
 
     # ------- UI handlers
 

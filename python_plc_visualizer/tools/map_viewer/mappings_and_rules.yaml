@@ -1,7 +1,61 @@
 # map_viewer/mappings_and_rules.yaml
-# Configuration for device-to-unit mapping and signal-based color rules
+# Configuration for device-to-unit mapping, signal-based color rules, and XML parsing
 
 default_color: "#D3D3D3"  # Light gray - default/neutral state
+
+# XML Parsing Configuration
+xml_parsing:
+  # Attributes to extract from XML elements
+  attributes_to_extract:
+    - "type"
+  
+  # Child elements to extract from XML elements
+  child_elements_to_extract:
+    - "Text"
+    - "Size"
+    - "Location"
+    - "UnitId"
+    - "LineThick"
+    - "FlowDirection"
+    - "DashStyle"
+    - "StartCap"
+    - "EndCap"
+    - "ForeColor"
+    - "BeltDirection"
+  
+  # Types that should be rendered as text labels
+  render_as_text_types:
+    - "System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089"
+  
+  # Types that should be rendered as arrows
+  render_as_arrow_types:
+    - "SmartFactory.SmartCIM.GUI.Widgets.WidgetArrow, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"
+  
+  # Types that should be rendered as rectangles with directional arrow overlays
+  render_as_arrowed_rectangle_types:
+    - "SmartFactory.SmartCIM.GUI.Widgets.WidgetBelt, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"
+  
+  # Type-based color mapping (base colors, will be overridden by runtime state)
+  type_color_mapping:
+    default: "#D3D3D3"  # neutral base; runtime state will recolor
+  
+  # Type-based z-index mapping (rendering order)
+  type_zindex_mapping:
+    "SmartFactory.SmartCIM.GUI.Widgets.WidgetConveyorPort, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": 4
+    "SmartFactory.SmartCIM.GUI.Widgets.WidgetBelt, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": 3
+    "SmartFactory.SmartCIM.GUI.Widgets.WidgetDiverter, SmartFactory.SmartCIM.GUI, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": 2
+    default: 0
+  
+  # ForeColor mapping (color name to QColor values)
+  forecolor_mapping:
+    HotTrack: "#0066CC"
+    Black: "#000000"
+    Red: "#FF0000"
+    Green: "#00FF00"
+    Blue: "#0000FF"
+    Yellow: "#FFFF00"
+    White: "#FFFFFF"
+    default: "#000000"
 
 # Device ID to UnitID mapping
 # Maps device_id patterns (with wildcards) to UnitId values from the XML
@@ -20,7 +74,15 @@ device_to_unit:
 # Each rule specifies: signal name, operator, value, resulting color, and priority
 # Higher priority rules are evaluated first
 #
-# New text overlay feature:
+# Rule fields:
+#   - signal: name of the signal to monitor
+#   - op: comparison operator (==, !=, >, <, >=, <=)
+#   - value: value to compare against
+#   - color: color to apply
+#   - priority: rule priority (higher wins)
+#   - target: "block" (default) or "arrow" - which part of arrowed rectangles to color
+#
+# Text overlay feature:
 #   - text: single character to display (e.g., 'X' to cross out)
 #   - text_color: color for the text overlay
 #   - bg_color: background color (if not specified, uses 'color')

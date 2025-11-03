@@ -54,7 +54,6 @@ class MainWindow(QMainWindow):
         self._home_view: Optional[HomeView] = None
         
         # Dialog windows
-        self._interval_windows: dict[str, SignalIntervalDialog] = {}
         self._interval_selection_window: Optional[SignalSelectionDialog] = None
         self._bookmark_dialog: Optional[BookmarkDialog] = None
         self._help_dialog: Optional[HelpDialog] = None
@@ -673,13 +672,9 @@ class MainWindow(QMainWindow):
         if signal_data:
             signal_data.pinned = False
 
-    def _on_interval_window_destroyed(self, signal_key: str):
-        """Cleanup when a signal interval window is closed."""
-        self._interval_windows.pop(signal_key, None)
-        self._unpin_signal_data(signal_key)
 
     def _open_signal_interval_for_key(self, signal_key: str):
-        """Open the signal interval dialog for a specific signal key."""
+        """Open the signal interval view as a new tab."""
         if not signal_key:
             return
 
@@ -709,27 +704,13 @@ class MainWindow(QMainWindow):
             )
             return
 
-        existing = self._interval_windows.get(signal_key)
-        if existing is not None:
-            try:
-                existing.show()
-                existing.raise_()
-                existing.activateWindow()
-                return
-            except RuntimeError:
-                self._interval_windows.pop(signal_key, None)
-
-        window = SignalIntervalDialog(signal_data, self)
-        window.setModal(False)
-        window.setWindowModality(Qt.WindowModality.NonModal)
-        window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        window.destroyed.connect(lambda _obj=None, key=signal_key: self._on_interval_window_destroyed(key))
-        self._interval_windows[signal_key] = window
+        # Pin signal data to prevent cleanup
         self._pin_signal_data(signal_key)
 
-        window.show()
-        window.raise_()
-        window.activateWindow()
+        # Create interval view and add as new tab
+        view = SignalIntervalDialog(signal_data, self)
+        title = f"Intervals: {signal_data.display_label}"
+        self.split_pane_manager.add_view(view, title)
 
     def _on_map_viewer_time_update(self, start_time, _end_time):
         """Update map viewer when waveform time changes."""
@@ -991,13 +972,6 @@ class MainWindow(QMainWindow):
                     self._map_viewer_window = None
             except RuntimeError:
                 self._map_viewer_window = None
-
-        for window in list(self._interval_windows.values()):
-            try:
-                window.close()
-            except RuntimeError:
-                pass
-        self._interval_windows.clear()
 
     def _on_file_removed_from_list(self, file_path: str):
         """Handle file removal from file list widget (trash button clicked)."""

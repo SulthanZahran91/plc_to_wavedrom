@@ -58,6 +58,9 @@ def merge_parse_results(results_by_file: dict[str, ParseResult]) -> ParseResult:
     Ensures errors retain their originating file path and combines all
     successfully parsed logs into a single ParsedLog.
 
+    Note: processing_time is not set here - it should be set by the caller
+    to reflect the total wall-clock time for the entire operation.
+
     Args:
         results_by_file: Mapping of absolute file path to ParseResult
 

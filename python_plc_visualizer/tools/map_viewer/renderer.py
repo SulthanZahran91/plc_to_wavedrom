@@ -8,8 +8,8 @@ from PySide6.QtGui import QColor, QPen, QBrush, QFont, QPainterPath, QPolygonF
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QLabel
 
 from .config import (
-    RENDER_AS_TEXT_TYPES, RENDER_AS_ARROW_TYPES, TYPE_COLOR_MAPPING,
-    TYPE_ZINDEX_MAPPING, FORECOLOR_MAPPING
+    RENDER_AS_TEXT_TYPES, RENDER_AS_ARROW_TYPES, RENDER_AS_ARROWED_RECTANGLE_TYPES,
+    TYPE_COLOR_MAPPING, TYPE_ZINDEX_MAPPING, FORECOLOR_MAPPING
 )
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,25 @@ def _parse_flow_direction(flow_direction_str: Optional[str]) -> tuple[float, str
     deg = (standard_deg % 360 + 360) % 360
     axis = {270: "up", 0: "right", 90: "down", 180: "left"}.get(deg, "diagonal")
     return math.radians(deg), axis
+
+def _parse_belt_direction(belt_direction_str: Optional[str]) -> float:
+    """
+    Parse BeltDirection (North, South, East, West) to angle in radians.
+    North = 0° (up), East = 90° (right), South = 180° (down), West = 270° (left)
+    Returns angle in radians for standard coordinate system.
+    """
+    if not belt_direction_str:
+        return math.radians(0)  # Default North
+    
+    direction_map = {
+        "North": 270,  # Up in screen coordinates
+        "South": 90,   # Down in screen coordinates
+        "East": 0,     # Right
+        "West": 180,   # Left
+    }
+    
+    deg = direction_map.get(belt_direction_str.strip(), 270)  # Default to North
+    return math.radians(deg)
 
 class MapRenderer(QGraphicsView):
     """
@@ -70,6 +89,8 @@ class MapRenderer(QGraphicsView):
         self._items_by_unit: Dict[str, list] = {}
         # index: UnitId -> text overlay item (if any)
         self._text_overlays_by_unit: Dict[str, Any] = {}
+        # index: UnitId -> arrow overlay item (if any)
+        self._arrow_overlays_by_unit: Dict[str, Any] = {}
         # object bounds cache for alignment debugging
         self._object_bounds: Dict[str, Dict[str, Any]] = {}
 
@@ -79,6 +100,7 @@ class MapRenderer(QGraphicsView):
         self.scene.clear()
         self._items_by_unit.clear()
         self._text_overlays_by_unit.clear()
+        self._arrow_overlays_by_unit.clear()
         self._object_bounds.clear()
 
         for name, data in objects.items():
@@ -135,6 +157,36 @@ class MapRenderer(QGraphicsView):
                 text_item.setFlag(text_item.GraphicsItemFlag.ItemIsSelectable)
                 self._index_unit_item(unit_id, text_item)
 
+            elif obj_type in RENDER_AS_ARROWED_RECTANGLE_TYPES:
+                # Arrowed rectangle: rectangle + arrow overlay
+                belt_direction = data.get("BeltDirection")
+                rect = self.scene.addRect(x, y, width, height)
+                rect.setPen(QPen(Qt.GlobalColor.black, 2))
+                rect.setBrush(QBrush(color))
+                rect.setZValue(z_index)
+                payload = {
+                    'name': name, 'type': obj_type, 'size': size_str, 'location': loc_str,
+                    'render_type': 'arrowed_rectangle', 'UnitId': unit_id,
+                    'BeltDirection': belt_direction
+                }
+                rect.setData(0, payload)
+                rect.setFlag(rect.GraphicsItemFlag.ItemIsSelectable)
+                self._index_unit_item(unit_id, rect)
+                self._object_bounds[name] = {
+                    "rect": (x, y, width, height),
+                    "unit_id": unit_id,
+                    "type": obj_type
+                }
+                
+                # Create arrow overlay
+                if belt_direction:
+                    arrow_item = self._create_arrow_overlay(x, y, width, height, belt_direction, z_index + 0.5)
+                    if arrow_item:
+                        arrow_item.setData(0, payload)
+                        arrow_item.setFlag(arrow_item.GraphicsItemFlag.ItemIsSelectable)
+                        if unit_id:
+                            self._arrow_overlays_by_unit[unit_id] = arrow_item
+            
             else:
                 rect = self.scene.addRect(x, y, width, height)
                 rect.setPen(QPen(Qt.GlobalColor.black, 2))
@@ -155,11 +207,14 @@ class MapRenderer(QGraphicsView):
 
         self.fitInView(self.scene.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
-    def update_rect_color_by_unit(self, unit_id: str, color: QColor,
+    def update_rect_color_by_unit(self, unit_id: str, block_color: Optional[QColor] = None,
+                                   arrow_color: Optional[QColor] = None,
                                    text_overlay_info: Optional[tuple[str, QColor]] = None) -> int:
         """
-        Update the brush of rectangle(s) sharing a UnitId and manage text overlays.
-        text_overlay_info is (character, text_color) or None.
+        Update the colors of rectangle(s) and arrow overlays sharing a UnitId.
+        - block_color: color for rectangle background (None means no change)
+        - arrow_color: color for arrow overlay (None means no change)
+        - text_overlay_info: (character, text_color) or None
         Returns the number of items changed.
         """
         items = self._items_by_unit.get(unit_id) or []
@@ -168,10 +223,18 @@ class MapRenderer(QGraphicsView):
 
         for it in items:
             data = it.data(0) or {}
-            if data.get('render_type') == 'rectangle':
-                it.setBrush(QBrush(color))
+            render_type = data.get('render_type')
+            if render_type in ('rectangle', 'arrowed_rectangle'):
+                if block_color is not None:
+                    it.setBrush(QBrush(block_color))
+                    changed += 1
                 rect_items.append(it)
-                changed += 1
+
+        # Handle arrow overlay color for arrowed rectangles
+        if arrow_color is not None and unit_id in self._arrow_overlays_by_unit:
+            arrow_item = self._arrow_overlays_by_unit[unit_id]
+            arrow_item.setPen(QPen(arrow_color, 3))
+            changed += 1
 
         # Handle text overlay
         if text_overlay_info and rect_items:
@@ -284,6 +347,57 @@ class MapRenderer(QGraphicsView):
 
         arrow_item.setData(0, data)
         arrow_item.setFlag(arrow_item.GraphicsItemFlag.ItemIsSelectable)
+        return arrow_item
+
+    def _create_arrow_overlay(self, x: float, y: float, width: float, height: float, 
+                              belt_direction: str, z_index: float) -> Any:
+        """Create a directional arrow overlay for a belt rectangle."""
+        angle_rad = _parse_belt_direction(belt_direction)
+        
+        # Arrow should be smaller than the rectangle to fit nicely
+        # Use 60% of the smaller dimension for arrow length
+        arrow_length = min(width, height) * 0.6
+        arrow_width = arrow_length * 0.3  # Arrowhead width
+        
+        # Center of rectangle
+        cx = x + width / 2.0
+        cy = y + height / 2.0
+        
+        # Calculate arrow line endpoints based on direction
+        dx = math.cos(angle_rad)
+        dy = math.sin(angle_rad)
+        
+        # Start and end points of arrow (centered on rectangle)
+        half_len = arrow_length / 2.0
+        start = QPointF(cx - dx * half_len, cy - dy * half_len)
+        end = QPointF(cx + dx * half_len, cy + dy * half_len)
+        
+        # Create arrow path
+        path = QPainterPath()
+        path.moveTo(start)
+        path.lineTo(end)
+        
+        # Create arrow with a visible but subtle style
+        pen = QPen(QColor(100, 100, 100), 3)  # Default gray, will be updated by color rules
+        arrow_item = self.scene.addPath(path, pen)
+        arrow_item.setZValue(z_index)
+        
+        # Add arrowhead
+        arrow_size = arrow_width
+        theta = math.atan2(end.y() - start.y(), end.x() - start.x())
+        wing = math.radians(30)
+        left_ang = theta + math.pi - wing
+        right_ang = theta + math.pi + wing
+        p_left = QPointF(end.x() + arrow_size * math.cos(left_ang),
+                         end.y() + arrow_size * math.sin(left_ang))
+        p_right = QPointF(end.x() + arrow_size * math.cos(right_ang),
+                          end.y() + arrow_size * math.sin(right_ang))
+        head = QPolygonF([end, p_left, p_right])
+        head_item = self.scene.addPolygon(head, pen, QBrush(QColor(100, 100, 100)))
+        head_item.setZValue(z_index)
+        
+        # Group arrow line and head together (we'll just track the main arrow_item)
+        # In a more sophisticated implementation, we'd use QGraphicsItemGroup
         return arrow_item
 
     def _closest_rect(self, point: QPointF) -> Optional[Tuple[str, Dict[str, Any], float, float]]:
@@ -441,7 +555,7 @@ class MapRenderer(QGraphicsView):
     def _highlight(self, item):
         data = item.data(0) or {}
         rt = data.get('render_type')
-        if rt == 'rectangle':
+        if rt in ('rectangle', 'arrowed_rectangle'):
             item.setPen(QPen(Qt.GlobalColor.red, 3))
         elif rt == 'text':
             item.setDefaultTextColor(Qt.GlobalColor.red)
@@ -451,7 +565,7 @@ class MapRenderer(QGraphicsView):
     def _unhighlight(self, item):
         data = item.data(0) or {}
         rt = data.get('render_type')
-        if rt == 'rectangle':
+        if rt in ('rectangle', 'arrowed_rectangle'):
             item.setPen(QPen(Qt.GlobalColor.black, 2))
         elif rt == 'text':
             item.setDefaultTextColor(Qt.GlobalColor.black)
