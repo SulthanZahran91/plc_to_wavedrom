@@ -345,6 +345,9 @@ class GenericTemplateLogParser(BaseParser):
 
     # ---------- Single-thread path ----------
     def _parse_single(self, file_path: str) -> ParseResult:
+        import time
+        start_time = time.perf_counter()
+        
         entries: List[LogEntry] = []
         signals: Set[str] = set()
         devices: Set[str] = set()
@@ -398,19 +401,23 @@ class GenericTemplateLogParser(BaseParser):
 
         except FileNotFoundError:
             errors.append(ParseError(0, "", f"File not found: {file_path}"))
-            return ParseResult(data=None, errors=errors)
+            elapsed = time.perf_counter() - start_time
+            return ParseResult(data=None, errors=errors, processing_time=elapsed)
         except Exception as e:
             errors.append(ParseError(0, "", f"Failed to read file: {e}"))
-            return ParseResult(data=None, errors=errors)
+            elapsed = time.perf_counter() - start_time
+            return ParseResult(data=None, errors=errors, processing_time=elapsed)
 
         if not entries:
-            return ParseResult(data=None, errors=errors)
+            elapsed = time.perf_counter() - start_time
+            return ParseResult(data=None, errors=errors, processing_time=elapsed)
 
         if not self.USE_CHRONO_DETECTION or out_of_order:
             entries.sort(key=lambda e: e.timestamp)
 
         parsed = ParsedLog(entries=entries, signals=signals, devices=devices)
-        return ParseResult(data=parsed, errors=errors)
+        elapsed = time.perf_counter() - start_time
+        return ParseResult(data=parsed, errors=errors, processing_time=elapsed)
 
     # ---------- Concurrent path (thread or process) ----------
     def _parse_concurrent(
@@ -420,6 +427,9 @@ class GenericTemplateLogParser(BaseParser):
         Batch parsing with threads or processes.
         For CPU-bound logs, prefer engine="process".
         """
+        import time
+        start_time = time.perf_counter()
+        
         errors: List[ParseError] = []
         all_entries: List[LogEntry] = []
         all_signals: Set[str] = set()
@@ -492,19 +502,23 @@ class GenericTemplateLogParser(BaseParser):
 
         except FileNotFoundError:
             errors.append(ParseError(0, "", f"File not found: {file_path}"))
-            return ParseResult(data=None, errors=errors)
+            elapsed = time.perf_counter() - start_time
+            return ParseResult(data=None, errors=errors, processing_time=elapsed)
         except Exception as e:
             errors.append(ParseError(0, "", f"Failed during concurrent parse: {e}"))
-            return ParseResult(data=None, errors=errors)
+            elapsed = time.perf_counter() - start_time
+            return ParseResult(data=None, errors=errors, processing_time=elapsed)
 
         if not all_entries:
-            return ParseResult(data=None, errors=errors)
+            elapsed = time.perf_counter() - start_time
+            return ParseResult(data=None, errors=errors, processing_time=elapsed)
 
         if not self.USE_CHRONO_DETECTION or out_of_order:
             all_entries.sort(key=lambda e: e.timestamp)
 
         parsed = ParsedLog(entries=all_entries, signals=all_signals, devices=all_devices)
-        return ParseResult(data=parsed, errors=errors)
+        elapsed = time.perf_counter() - start_time
+        return ParseResult(data=parsed, errors=errors, processing_time=elapsed)
 
     # ---------- Helpers ----------
     def _iter_line_batches(

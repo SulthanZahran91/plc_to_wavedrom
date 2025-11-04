@@ -87,6 +87,7 @@ class ParseResult:
     """Complete result of parsing a log file, including errors."""
     data: ParsedLog | None
     errors: list[ParseError] = field(default_factory=list)
+    processing_time: float | None = None  # Time taken to parse in seconds
 
     @property
     def success(self) -> bool:

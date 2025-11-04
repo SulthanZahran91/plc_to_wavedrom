@@ -36,7 +36,12 @@ class ParserThread(QThread):
 
     def run(self):
         """Parse files sequentially within the worker thread."""
+        import time
+        from dataclasses import replace
+        
         try:
+            start_time = time.perf_counter()
+            
             per_file_results: Dict[str, ParseResult] = {}
             total_files = len(self.file_paths)
 
@@ -48,6 +53,12 @@ class ParserThread(QThread):
             signal_data_list: list[SignalData] = []
             if aggregated_result.success and aggregated_result.data:
                 signal_data_list = self._compute_signal_data(aggregated_result.data)
+
+            # Calculate total elapsed time
+            elapsed_time = time.perf_counter() - start_time
+            
+            # Update the aggregated result with total processing time
+            aggregated_result = replace(aggregated_result, processing_time=elapsed_time)
 
             self.finished.emit(aggregated_result, per_file_results, signal_data_list)
         except Exception as exc:  # pragma: no cover - logged upstream
@@ -294,6 +305,10 @@ class SessionManager(QObject):
         Args:
             target_time: The time to sync all views to
         """
+        # Directly update viewport state for timing diagrams (shared state)
+        self._viewport_state.jump_to_time(target_time)
+        
+        # Emit signal for other view types (LogTable, MapViewer)
         self.sync_requested.emit(target_time)
 
     # ------------------------------------------------------------------ Internals

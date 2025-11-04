@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QFileDialog,
     QFrame,
+    QSplitter,
 )
 from PySide6.QtCore import Qt
 
@@ -324,28 +325,51 @@ class LogTableView(QWidget):
         validation_panel = self._create_validation_toolbar()
         content_layout.addWidget(validation_panel)
 
+        # Create splitter for collapsible filter panel
+        splitter_frame = QWidget()
+        splitter_frame.setObjectName("LogTableSplitterCard")
+        splitter_frame.setStyleSheet(card_panel_styles("LogTableSplitterCard"))
+        splitter_frame_layout = QVBoxLayout(splitter_frame)
+        splitter_frame_layout.setContentsMargins(12, 12, 12, 12)
+        splitter_frame_layout.setSpacing(0)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(10)
+        splitter.setStyleSheet("""
+            QSplitter::handle:horizontal {
+                background-color: #d7dee4;
+                margin: 0;
+            }
+        """)
+        splitter_frame_layout.addWidget(splitter, stretch=1)
+        content_layout.addWidget(splitter_frame, stretch=1)
+
+        # Filter panel
+        filter_container = QWidget()
+        filter_layout = QVBoxLayout(filter_container)
+        filter_layout.setContentsMargins(0, 0, 0, 0)
+        filter_layout.setSpacing(0)
+
         self.signal_filter = SignalFilterWidget()
         self.signal_filter.visible_signals_changed.connect(self._on_visible_signals_changed)
         self.signal_filter.plot_intervals_requested.connect(self._handle_plot_intervals)
-
-        filter_card = QWidget()
-        filter_card.setObjectName("LogFilterCard")
-        filter_card.setStyleSheet(card_panel_styles("LogFilterCard"))
-        filter_layout = QVBoxLayout(filter_card)
-        filter_layout.setContentsMargins(12, 12, 12, 12)
-        filter_layout.setSpacing(8)
         filter_layout.addWidget(self.signal_filter)
-        content_layout.addWidget(filter_card)
+
+        splitter.addWidget(filter_container)
+
+        # Table panel
+        table_container = QWidget()
+        table_layout = QVBoxLayout(table_container)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.setSpacing(0)
 
         self.data_table = DataTableWidget()
-        table_card = QWidget()
-        table_card.setObjectName("LogTableCard")
-        table_card.setStyleSheet(card_panel_styles("LogTableCard"))
-        table_layout = QVBoxLayout(table_card)
-        table_layout.setContentsMargins(12, 12, 12, 12)
-        table_layout.setSpacing(0)
         table_layout.addWidget(self.data_table)
-        content_layout.addWidget(table_card, stretch=1)
+
+        splitter.addWidget(table_container)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([320, 900])
 
     def _create_validation_toolbar(self) -> QFrame:
         """Create the validation control toolbar."""

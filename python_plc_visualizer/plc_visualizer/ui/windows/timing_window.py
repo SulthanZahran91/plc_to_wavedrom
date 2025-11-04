@@ -42,7 +42,9 @@ class TimingDiagramView(QWidget):
         self._session_manager = session_manager
         self._init_ui()
         self._connect_viewport_signals()
-        self._connect_session_signals()
+        # Note: TimingDiagramView does NOT connect to sync_requested signal
+        # because all timing diagrams share viewport_state and are already synchronized.
+        # Only views with independent state (LogTable, MapViewer) need to sync.
         self._update_controls_enabled(False)
 
     @property
@@ -66,7 +68,9 @@ class TimingDiagramView(QWidget):
             return None
         visible_range = self._viewport_state.visible_time_range
         if visible_range:
-            return visible_range[0]  # Use start of visible range
+            start, end = visible_range
+            # Return middle of visible range (matches jump_to_time centering)
+            return start + (end - start) / 2
         return None
     
     def keyPressEvent(self, event: QKeyEvent):
@@ -268,10 +272,6 @@ class TimingDiagramView(QWidget):
     def _connect_viewport_signals(self):
         self._viewport_state.duration_changed.connect(self._on_viewport_duration_changed)
         self._viewport_state.time_range_changed.connect(self._on_viewport_time_range_changed)
-    
-    def _connect_session_signals(self):
-        """Connect session manager signals."""
-        self._session_manager.sync_requested.connect(self._on_sync_requested)
 
     def _update_controls_enabled(self, enabled: bool):
         self.zoom_controls.set_enabled(enabled)
@@ -306,10 +306,6 @@ class TimingDiagramView(QWidget):
             self._viewport_state.pan(delta)
 
     def _on_jump_to_time(self, target_time):
-        self._viewport_state.jump_to_time(target_time)
-    
-    def _on_sync_requested(self, target_time):
-        """Handle sync request from session manager."""
         self._viewport_state.jump_to_time(target_time)
 
     def _on_scroll_changed(self, position: float):
