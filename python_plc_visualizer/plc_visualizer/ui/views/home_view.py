@@ -59,7 +59,7 @@ class HomeView(QWidget):
         left_layout.setSpacing(12)
         
         # Upload section label
-        upload_label = QLabel("📄 Log File")
+        upload_label = QLabel(" Log File")
         upload_label.setStyleSheet("font-weight: bold; font-size: 13px;")
         left_layout.addWidget(upload_label)
         
@@ -132,7 +132,7 @@ class HomeView(QWidget):
         
         # Create the 4 view buttons
         timing_button = self._create_view_button(
-            "⚙️ Timing Diagram",
+            " Timing Diagram",
             "#4285F4",  # Blue
             "#1967D2",
             "#0D47A1"
@@ -140,7 +140,7 @@ class HomeView(QWidget):
         timing_button.clicked.connect(self.timing_diagram_requested.emit)
         
         log_table_button = self._create_view_button(
-            "📋 Log Table",
+            " Log Table",
             "#34A853",  # Green
             "#2D8E47",
             "#1E7735"
@@ -148,7 +148,7 @@ class HomeView(QWidget):
         log_table_button.clicked.connect(self.log_table_requested.emit)
         
         map_viewer_button = self._create_view_button(
-            "🗺️ Map Viewer",
+            " Map Viewer",
             "#FBBC04",  # Yellow
             "#F9AB00",
             "#E37400"
@@ -156,7 +156,7 @@ class HomeView(QWidget):
         map_viewer_button.clicked.connect(self.map_viewer_requested.emit)
         
         intervals_button = self._create_view_button(
-            "📈 Signal Intervals",
+            " Signal Intervals",
             "#EA4335",  # Red
             "#D33B2C",
             "#B31412"

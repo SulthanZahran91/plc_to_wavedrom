@@ -159,12 +159,12 @@ class ChunkedParsedLog:
                 # total entries seen, not currently in memory
 
             if evicted_count > 0:
-                print(f"♻️  Evicted {evicted_count} old chunk(s) (LRU cache limit: {self.max_chunks_in_memory})")
+                print(f"  Evicted {evicted_count} old chunk(s) (LRU cache limit: {self.max_chunks_in_memory})")
 
             return chunk
 
         except Exception as e:
-            print(f"❌ Error loading chunk {chunk_key}: {e}")
+            print(f" Error loading chunk {chunk_key}: {e}")
             return None
 
     def get_entries_in_range(
