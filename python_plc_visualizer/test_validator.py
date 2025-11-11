@@ -173,7 +173,7 @@ def run_test(name: str, parsed_log: ParsedLog, signal_data_list: list[SignalData
     violations = validator.validate_all(parsed_log, signal_data_list)
 
     if not violations:
-        print("✅ NO VIOLATIONS - Sequence is perfect!")
+        print(" NO VIOLATIONS - Sequence is perfect!")
     else:
         for device_id, device_violations in violations.items():
             print(f"\nDevice: {device_id}")
@@ -194,9 +194,9 @@ def main():
 
     try:
         validator = SignalValidator(rules_path)
-        print("✅ Rules loaded successfully")
+        print(" Rules loaded successfully")
     except Exception as e:
-        print(f"❌ Failed to load rules: {e}")
+        print(f" Failed to load rules: {e}")
         import traceback
         traceback.print_exc()
         return

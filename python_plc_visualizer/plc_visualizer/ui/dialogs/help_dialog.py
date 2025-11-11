@@ -33,16 +33,16 @@ class HelpDialog(QDialog):
         
         # Create tab widget for different help sections
         tabs = QTabWidget()
-        tabs.addTab(self._create_getting_started_tab(), "🚀 Getting Started")
-        tabs.addTab(self._create_file_management_tab(), "📁 File Management")
-        tabs.addTab(self._create_home_view_tab(), "🏠 Home View")
-        tabs.addTab(self._create_timing_diagram_tab(), "⚙️ Timing Diagram")
-        tabs.addTab(self._create_log_table_tab(), "📋 Log Table")
-        tabs.addTab(self._create_map_viewer_tab(), "🗺️ Map Viewer")
-        tabs.addTab(self._create_signal_intervals_tab(), "📈 Signal Intervals")
-        tabs.addTab(self._create_multi_view_tab(), "🔀 Multi-View System")
-        tabs.addTab(self._create_shortcuts_tab(), "⌨️ Shortcuts")
-        tabs.addTab(self._create_tips_tab(), "💡 Tips & Troubleshooting")
+        tabs.addTab(self._create_getting_started_tab(), " Getting Started")
+        tabs.addTab(self._create_file_management_tab(), " File Management")
+        tabs.addTab(self._create_home_view_tab(), " Home View")
+        tabs.addTab(self._create_timing_diagram_tab(), " Timing Diagram")
+        tabs.addTab(self._create_log_table_tab(), " Log Table")
+        tabs.addTab(self._create_map_viewer_tab(), " Map Viewer")
+        tabs.addTab(self._create_signal_intervals_tab(), " Signal Intervals")
+        tabs.addTab(self._create_multi_view_tab(), " Multi-View System")
+        tabs.addTab(self._create_shortcuts_tab(), "⌨ Shortcuts")
+        tabs.addTab(self._create_tips_tab(), " Tips & Troubleshooting")
         
         layout.addWidget(tabs)
         
@@ -107,9 +107,9 @@ class HelpDialog(QDialog):
             "   • The app will parse and display statistics<br><br>"
             
             "<b>2. Open Views</b><br>"
-            "   • Click the <b>⚙️ Timing Diagram</b> button to see waveforms<br>"
-            "   • Click the <b>📋 Log Table</b> button to see entries<br>"
-            "   • Click the <b>🗺️ Map Viewer</b> button to visualize states<br>"
+            "   • Click the <b> Timing Diagram</b> button to see waveforms<br>"
+            "   • Click the <b> Log Table</b> button to see entries<br>"
+            "   • Click the <b> Map Viewer</b> button to visualize states<br>"
             "   • Or use keyboard shortcuts: <b>Ctrl+T</b>, <b>Ctrl+L</b>, <b>Ctrl+M</b><br><br>"
             
             "<b>3. Analyze</b><br>"
@@ -120,7 +120,7 @@ class HelpDialog(QDialog):
             
             "<b>4. Compare</b><br>"
             "   • Split views by dragging tabs to screen edges<br>"
-            "   • Use the <b>🔗 Sync Views</b> button to align times<br>"
+            "   • Use the <b> Sync Views</b> button to align times<br>"
             "   • Work with up to 4 panes simultaneously"
         )
         workflow.setWordWrap(True)
@@ -170,7 +170,7 @@ class HelpDialog(QDialog):
             "<b>How to Upload Files:</b><br><br>"
             
             "<b>Method 1: Drag and Drop</b><br>"
-            "1. Open the <b>🏠 Home</b> tab<br>"
+            "1. Open the <b> Home</b> tab<br>"
             "2. Drag one or more log files from your file manager<br>"
             "3. Drop them onto the upload widget<br>"
             "4. Parsing begins automatically<br><br>"
@@ -205,7 +205,7 @@ class HelpDialog(QDialog):
             "• <b>File name</b> with full path in tooltip<br>"
             "• <b>Parse status</b> (success/failure)<br>"
             "• <b>Progress indicators</b> during parsing<br>"
-            "• <b>🗑️ Remove button</b> to unload individual files<br><br>"
+            "• <b> Remove button</b> to unload individual files<br><br>"
             
             "<b>Statistics Panel:</b><br>"
             "After successful parsing, the statistics widget displays:<br>"
@@ -216,7 +216,7 @@ class HelpDialog(QDialog):
             
             "<b>Clearing Data:</b><br>"
             "• Click the <b>Clear</b> button in the header to reset everything<br>"
-            "• Or use the 🗑️ button on individual files in the file list<br>"
+            "• Or use the  button on individual files in the file list<br>"
             "• Clearing closes all open views and frees memory"
         )
         help_text.setWordWrap(True)
@@ -273,7 +273,7 @@ class HelpDialog(QDialog):
             "<b>3. File List Widget (Right Side)</b><br>"
             "Shows all loaded files with:<br>"
             "• File names and paths<br>"
-            "• Status indicators (✓ success, ✗ error)<br>"
+            "• Status indicators ( success,  error)<br>"
             "• Progress bars during parsing<br>"
             "• Individual remove buttons<br><br>"
             
@@ -285,10 +285,10 @@ class HelpDialog(QDialog):
             
             "<b>5. View Buttons (Bottom)</b><br>"
             "Four large buttons to open different views:<br>"
-            "• <b>⚙️ Timing Diagram</b> - See signal waveforms<br>"
-            "• <b>📋 Log Table</b> - Browse log entries<br>"
-            "• <b>🗺️ Map Viewer</b> - Visualize states<br>"
-            "• <b>📈 Signal Intervals</b> - Analyze signal changes<br><br>"
+            "• <b> Timing Diagram</b> - See signal waveforms<br>"
+            "• <b> Log Table</b> - Browse log entries<br>"
+            "• <b> Map Viewer</b> - Visualize states<br>"
+            "• <b> Signal Intervals</b> - Analyze signal changes<br><br>"
             
             "<b>Working with Home View:</b><br>"
             "• The Home View stays open—it's always your first tab<br>"
@@ -379,7 +379,7 @@ class HelpDialog(QDialog):
             "• Pan to different time ranges as needed<br><br>"
             
             "<b>Integration with Other Views:</b><br>"
-            "• Use <b>🔗 Sync Views</b> button to align with other views<br>"
+            "• Use <b> Sync Views</b> button to align with other views<br>"
             "• Changes to viewport propagate to synchronized views<br>"
             "• Bookmarks jump to specific times in this view<br><br>"
             
@@ -566,7 +566,7 @@ class HelpDialog(QDialog):
             "• Tooltip shows element names and current states<br><br>"
             
             "<b>Integration:</b><br>"
-            "• Syncs with other views via the <b>🔗 Sync Views</b> button<br>"
+            "• Syncs with other views via the <b> Sync Views</b> button<br>"
             "• Time changes in Timing Diagram update the map<br>"
             "• Bookmarks work across all views including map<br><br>"
             
@@ -636,7 +636,7 @@ class HelpDialog(QDialog):
             "3. Same histogram display opens<br><br>"
             
             "<b>From Home View:</b><br>"
-            "1. Click the <b>📈 Signal Intervals</b> button<br>"
+            "1. Click the <b> Signal Intervals</b> button<br>"
             "2. Choose which signal to analyze<br>"
             "3. Interval window opens for selected signal<br><br>"
             
@@ -763,7 +763,7 @@ class HelpDialog(QDialog):
             
             "<b>How to Use:</b><br>"
             "1. Navigate to an interesting time in any Timing Diagram view<br>"
-            "2. Click the <span style='color: #4285F4;'><b>🔗 Sync Views</b></span> button in the header<br>"
+            "2. Click the <span style='color: #4285F4;'><b> Sync Views</b></span> button in the header<br>"
             "3. All open views will jump to the same time<br><br>"
             
             "<b>What Gets Synchronized:</b><br>"
@@ -1028,7 +1028,7 @@ class HelpDialog(QDialog):
             "• Try opening views manually (buttons or menu)<br><br>"
             
             "<b>\"Views are not synchronized\"</b><br>"
-            "• Click the <span style='color: #4285F4;'><b>🔗 Sync Views</b></span> button in the header<br>"
+            "• Click the <span style='color: #4285F4;'><b> Sync Views</b></span> button in the header<br>"
             "• Ensure a timing diagram view is open and active<br>"
             "• Sync works from the active view's current time<br>"
             "• Only timing-aware views can be synced<br><br>"

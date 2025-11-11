@@ -45,6 +45,6 @@ def get_current_time(self):
 
 ## Expected Behavior After Fix
 
-- ✅ Press "Sync Views" on timing diagram → stays in exact same position
-- ✅ Other views sync to the middle of the timing diagram's visible range (most intuitive)
-- ✅ Syncing from other views still works correctly
+-  Press "Sync Views" on timing diagram → stays in exact same position
+-  Other views sync to the middle of the timing diagram's visible range (most intuitive)
+-  Syncing from other views still works correctly

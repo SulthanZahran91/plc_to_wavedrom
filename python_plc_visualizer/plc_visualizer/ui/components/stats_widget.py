@@ -121,7 +121,7 @@ class StatsWidget(QWidget):
         if result.has_errors:
             error_count = result.error_count
             self.errors_label.setText(
-                f"⚠️ Errors: {error_count} line(s) could not be parsed"
+                f" Errors: {error_count} line(s) could not be parsed"
             )
             self.errors_label.setStyleSheet(
                 "padding: 5px; font-size: 13px; color: #d32f2f; font-weight: bold;"
@@ -139,7 +139,7 @@ class StatsWidget(QWidget):
             self.error_details.setText(error_text)
             self.error_details.setVisible(True)
         else:
-            self.errors_label.setText("✓ Errors: 0")
+            self.errors_label.setText(" Errors: 0")
             self.errors_label.setStyleSheet(
                 "padding: 5px; font-size: 13px; color: #2e7d32; font-weight: bold;"
             )

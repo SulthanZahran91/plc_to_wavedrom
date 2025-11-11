@@ -57,7 +57,7 @@ class ChunkManager:
         """
         # Loading indicator
         if self.chunked_log.chunks_in_memory == 0:
-            print(f"📦 Loading initial chunk: {start_time.strftime('%H:%M:%S')} - {end_time.strftime('%H:%M:%S')}")
+            print(f" Loading initial chunk: {start_time.strftime('%H:%M:%S')} - {end_time.strftime('%H:%M:%S')}")
 
         # Check if parser supports time-windowed parsing
         if hasattr(self.parser, 'parse_time_window'):
@@ -167,7 +167,7 @@ class ChunkManager:
                     prefetch_count += 1
 
         if prefetch_count > 0:
-            print(f"🔄 Prefetched {prefetch_count} adjacent chunk(s) | Chunks in memory: {self.chunked_log.chunks_in_memory}")
+            print(f" Prefetched {prefetch_count} adjacent chunk(s) | Chunks in memory: {self.chunked_log.chunks_in_memory}")
 
     def clear_cache(self):
         """Clear all cached chunks."""

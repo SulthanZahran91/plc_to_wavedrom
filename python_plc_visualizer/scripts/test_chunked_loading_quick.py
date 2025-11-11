@@ -93,11 +93,11 @@ def test_chunked_loading_quick(log_file: str):
     print("Step 1: Extracting time range (fast)...")
     time_range = extract_time_range_fast(log_file)
     if not time_range:
-        print("❌ Could not extract time range")
+        print(" Could not extract time range")
         return
 
     start_time, end_time = time_range
-    print(f"✅ Time range: {start_time} to {end_time}")
+    print(f" Time range: {start_time} to {end_time}")
     duration = (end_time - start_time).total_seconds()
     print(f"   Duration: {duration:.1f} seconds ({duration/60:.1f} minutes)")
     print()
@@ -110,7 +110,7 @@ def test_chunked_loading_quick(log_file: str):
         chunk_duration_seconds=300.0,  # 5 minutes
         max_chunks_in_memory=5
     )
-    print(f"✅ Chunked log created")
+    print(f" Chunked log created")
     print()
 
     # Step 3: Load first chunk
@@ -118,7 +118,7 @@ def test_chunked_loading_quick(log_file: str):
     chunk_start = start_time
     chunk_end = chunk_start + timedelta(seconds=300)
     entries = chunk_manager.get_entries_in_range(chunk_start, chunk_end)
-    print(f"✅ Loaded {len(entries)} entries from first chunk")
+    print(f" Loaded {len(entries)} entries from first chunk")
     print(f"   Chunks in memory: {chunk_manager.chunks_in_memory}")
     if entries:
         print(f"   First entry: {entries[0].timestamp}")
@@ -131,7 +131,7 @@ def test_chunked_loading_quick(log_file: str):
     chunk_start = middle_time
     chunk_end = chunk_start + timedelta(seconds=300)
     entries = chunk_manager.get_entries_in_range(chunk_start, chunk_end)
-    print(f"✅ Loaded {len(entries)} entries from middle chunk")
+    print(f" Loaded {len(entries)} entries from middle chunk")
     print(f"   Chunks in memory: {chunk_manager.chunks_in_memory}")
     print()
 
@@ -140,7 +140,7 @@ def test_chunked_loading_quick(log_file: str):
     chunk_start = end_time - timedelta(seconds=300)
     chunk_end = end_time
     entries = chunk_manager.get_entries_in_range(chunk_start, chunk_end)
-    print(f"✅ Loaded {len(entries)} entries from last chunk")
+    print(f" Loaded {len(entries)} entries from last chunk")
     print(f"   Chunks in memory: {chunk_manager.chunks_in_memory}")
     print()
 
@@ -162,7 +162,7 @@ def test_chunked_loading_quick(log_file: str):
 
     # Step 7: Signal discovery
     print("Step 7: Signal discovery...")
-    print(f"✅ Discovered {len(chunked_log.signals)} unique signals")
+    print(f" Discovered {len(chunked_log.signals)} unique signals")
     if chunked_log.signals:
         sample_signals = sorted(chunked_log.signals)[:3]
         for signal in sample_signals:
@@ -170,7 +170,7 @@ def test_chunked_loading_quick(log_file: str):
     print()
 
     print("=" * 60)
-    print("✅ Chunked loading system working correctly!")
+    print(" Chunked loading system working correctly!")
     print(f"   Only {chunk_manager.chunks_in_memory}/{chunked_log.max_chunks_in_memory} chunks in memory")
     print("=" * 60)
 
@@ -187,7 +187,7 @@ def main():
     log_file = sys.argv[1]
 
     if not Path(log_file).exists():
-        print(f"❌ File not found: {log_file}")
+        print(f" File not found: {log_file}")
         sys.exit(1)
 
     test_chunked_loading_quick(log_file)

@@ -42,7 +42,7 @@ class FileUploadWidget(QWidget):
         drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Icon/Label
-        self.label = QLabel("📁 Drag and drop log files here\nor click to browse")
+        self.label = QLabel(" Drag and drop log files here\nor click to browse")
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label.setStyleSheet("font-size: 14px; padding: 20px;")
         drop_layout.addWidget(self.label)
