@@ -89,7 +89,7 @@ class MainWindow(QMainWindow):
         header_layout.addStretch()
 
         # Help button in header
-        help_button = QPushButton("❓ Help")
+        help_button = QPushButton(" Help")
         help_button.setMaximumWidth(80)
         help_button.setStyleSheet("""
             QPushButton {
@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(help_button)
 
         # Sync All Views button in header
-        self._sync_button = QPushButton("🔗 Sync Views")
+        self._sync_button = QPushButton(" Sync Views")
         self._sync_button.setMaximumWidth(120)
         self._sync_button.setEnabled(False)  # Disabled until data is loaded
         self._sync_button.setStyleSheet("""
@@ -189,7 +189,7 @@ class MainWindow(QMainWindow):
         self._home_view.map_viewer_requested.connect(self._add_map_viewer_view)
         self._home_view.signal_intervals_requested.connect(self._open_signal_interval_windows)
         
-        self._split_pane_manager.add_view(self._home_view, "🏠 Home")
+        self._split_pane_manager.add_view(self._home_view, " Home")
 
         self.setStyleSheet("""
             QMainWindow {
@@ -778,7 +778,7 @@ class MainWindow(QMainWindow):
             self._home_view.upload_widget.setEnabled(False)
             names = ", ".join(Path(path).name for path in file_paths)
             self._home_view.upload_widget.set_status(
-                f"📄 Parsing {len(file_paths)} file(s): {names}"
+                f" Parsing {len(file_paths)} file(s): {names}"
             )
             self._home_view.progress_bar.setRange(0, len(file_paths))
             self._home_view.progress_bar.setValue(0)
@@ -830,7 +830,7 @@ class MainWindow(QMainWindow):
             )
             if self._home_view:
                 self._home_view.upload_widget.set_status(
-                    "📁 Drag and drop log files here\nor click to browse"
+                    " Drag and drop log files here\nor click to browse"
                 )
             return
 
@@ -853,7 +853,7 @@ class MainWindow(QMainWindow):
             self._sync_button.setEnabled(has_data)
 
         success_count = len(successful_files)
-        status = f"✓ Loaded {success_count} of {total_files} file(s)"
+        status = f" Loaded {success_count} of {total_files} file(s)"
         if aggregated_result.has_errors:
             status += f" with {aggregated_result.error_count} error(s)"
         if self._home_view:
@@ -886,7 +886,7 @@ class MainWindow(QMainWindow):
             self._home_view.progress_bar.reset()
             self._home_view.progress_bar.setFormat("Parsing files... %p%")
             self._home_view.upload_widget.set_status(
-                "📁 Drag and drop log files here\nor click to browse"
+                " Drag and drop log files here\nor click to browse"
             )
         if self._sync_button:
             self._sync_button.setEnabled(False)
@@ -917,7 +917,7 @@ class MainWindow(QMainWindow):
             self._home_view.progress_bar.setFormat("Parsing files... %p%")
             self._home_view.upload_widget.setEnabled(True)
             self._home_view.upload_widget.set_status(
-                "📁 Drag and drop log files here\nor click to browse"
+                " Drag and drop log files here\nor click to browse"
             )
 
             if self._home_view.stats_widget:

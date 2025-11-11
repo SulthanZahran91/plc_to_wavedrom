@@ -32,23 +32,23 @@ def test_chunked_loading(log_file: str):
     print("Step 1: Scanning file for time range...")
     parser = parser_registry.detect_parser(log_file)
     if not parser:
-        print("❌ No parser found for this file")
+        print(" No parser found for this file")
         return
 
-    print(f"✅ Using parser: {parser.name}")
+    print(f" Using parser: {parser.name}")
 
     # Parse just enough to get time range (we'll use full parse for demo)
     result = parser.parse(log_file)
     if not result.success or not result.data:
-        print("❌ Failed to parse file")
+        print(" Failed to parse file")
         return
 
     time_range = result.data.time_range
     if not time_range:
-        print("❌ No time range found in file")
+        print(" No time range found in file")
         return
 
-    print(f"✅ Time range: {time_range[0]} to {time_range[1]}")
+    print(f" Time range: {time_range[0]} to {time_range[1]}")
     duration = (time_range[1] - time_range[0]).total_seconds()
     print(f"   Duration: {duration:.1f} seconds ({duration/60:.1f} minutes)")
     print(f"   Total entries: {len(result.data.entries)}")
@@ -63,7 +63,7 @@ def test_chunked_loading(log_file: str):
         chunk_duration_seconds=300.0,  # 5 minutes
         max_chunks_in_memory=5
     )
-    print(f"✅ Chunked log created")
+    print(f" Chunked log created")
     print()
 
     # Step 3: Test loading first chunk
@@ -71,7 +71,7 @@ def test_chunked_loading(log_file: str):
     start_time = time_range[0]
     end_time = start_time + timedelta(seconds=300)
     entries = chunk_manager.get_entries_in_range(start_time, end_time)
-    print(f"✅ Loaded {len(entries)} entries from first chunk")
+    print(f" Loaded {len(entries)} entries from first chunk")
     print(f"   Chunks in memory: {chunk_manager.chunks_in_memory}")
     print()
 
@@ -91,12 +91,12 @@ def test_chunked_loading(log_file: str):
         print(f"   → Loaded {len(entries)} entries")
 
     print()
-    print(f"✅ Final chunks in memory: {chunk_manager.chunks_in_memory}")
+    print(f" Final chunks in memory: {chunk_manager.chunks_in_memory}")
     print()
 
     # Step 5: Test signal discovery
     print("Step 5: Testing signal discovery from chunks...")
-    print(f"✅ Discovered {len(chunked_log.signals)} unique signals:")
+    print(f" Discovered {len(chunked_log.signals)} unique signals:")
     for i, signal in enumerate(sorted(chunked_log.signals)[:5], 1):
         print(f"   {i}. {signal}")
     if len(chunked_log.signals) > 5:
@@ -111,7 +111,7 @@ def test_chunked_loading(log_file: str):
     print(f"Max chunks allowed: {chunked_log.max_chunks_in_memory}")
     print(f"Chunk duration: {chunked_log.chunk_duration.total_seconds():.0f} seconds")
     print()
-    print("✅ Chunked loading system working correctly!")
+    print(" Chunked loading system working correctly!")
     print("   Only a small portion of the file is kept in memory at a time.")
     print()
 
@@ -128,7 +128,7 @@ def main():
     log_file = sys.argv[1]
 
     if not Path(log_file).exists():
-        print(f"❌ File not found: {log_file}")
+        print(f" File not found: {log_file}")
         sys.exit(1)
 
     test_chunked_loading(log_file)

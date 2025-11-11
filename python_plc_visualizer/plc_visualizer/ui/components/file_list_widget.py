@@ -44,7 +44,7 @@ class FileListItem(QFrame):
 
         # File icon and name
         file_name = Path(self.file_path).name
-        file_label = QLabel(f"📄 {file_name}")
+        file_label = QLabel(f" {file_name}")
         file_label.setStyleSheet("font-size: 12px;")
         file_label.setMinimumWidth(200)
         layout.addWidget(file_label)
@@ -71,7 +71,7 @@ class FileListItem(QFrame):
         layout.addWidget(self.progress_bar)
 
         # Trash button
-        trash_button = QPushButton("🗑️")
+        trash_button = QPushButton("")
         trash_button.setMaximumWidth(40)
         trash_button.setMaximumHeight(28)
         trash_button.setStyleSheet("""
