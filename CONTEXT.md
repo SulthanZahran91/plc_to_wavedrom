@@ -20,27 +20,49 @@ Data flows from the entry point through parsing to the UI as follows:
 
 ### `app/`
 *   **`session_manager.py`**: Central coordinator. Manages parsing threads, bookmarks, and synchronizes time across views (`sync_all_views`).
+    *   `parse_files(file_paths)`: Kick off a parse job for the provided file paths.
+    *   `clear_session()`: Reset all parsed state.
+    *   `add_bookmark(timestamp, label, description)`: Add a new bookmark.
+    *   `sync_all_views(target_time)`: Synchronize all views to the specified time.
 
 ### `models/`
 *   **`data_types.py`**: Core structures: `LogEntry`, `ParsedLog`, `SignalType`.
 *   **`chunked_log.py`**: `ChunkedParsedLog` for memory-efficient storage (LRU cache of `TimeChunk`s).
+    *   `get_entries_in_range(start_time, end_time)`: Get all entries within a time range.
+    *   `prefetch_chunks(start_time, end_time)`: Prefetch chunks in a time range.
+    *   `clear_cache()`: Clear all cached chunks from memory.
 *   **`bookmark.py`**: Manages user bookmarks.
 
 ### `parsers/`
 *   **`parser_registry.py`**: Singleton registry for auto-detecting parsers.
+    *   `register(parser, is_default)`: Register a parser.
+    *   `detect_parser(file_path)`: Auto-detect which parser can handle the file.
+    *   `parse(file_path, parser_name, num_workers)`: Parse a file using auto-detection or specified parser.
 *   **`base_parser.py`**: `GenericTemplateLogParser` with regex fast-paths (`_fast_ts`, `_parse_line_hot`).
+    *   `parse(file_path, num_workers)`: Parse a file.
+    *   `parse_time_window(file_path, start_time, end_time)`: Parse only entries within a specific time window.
 *   **`plc_parser.py`**: `PLCDebugParser` implementation with an "ultra-fast" bracket-delimited parser (`_fast_parse_line`).
+    *   `parse_time_window(file_path, start_time, end_time)`: Optimized time-window parsing for bracket-delimited format.
 *   **`plc_tab_parser.py`**, **`csv_signal_parser.py`**: Specialized parsers for other formats.
 
 ### `ui/`
 *   **`main_window.py`**: Primary UI container. Uses `SplitPaneManager`.
+    *   `_init_ui()`: Initialize the user interface.
+    *   `_bind_session_manager()`: Connect session manager signals to window handlers.
+    *   `_add_timing_view()`: Add a new timing diagram view.
 *   **`theme.py`**: Defines application styles (colors, fonts).
 *   **`components/`**:
     *   **`split_pane_manager.py`**: Manages flexible tabbed/split layouts.
     *   **`signal_filter_widget.py`**: Complex filtering logic (regex, presets, "show changed").
     *   **`waveform/`**:
         *   **`waveform_view.py`**: Container for the scene.
+            *   `set_data(parsed_log)`: Set the data to visualize.
+            *   `set_visible_signals(signal_names)`: Update which signals are visible.
+            *   `set_viewport_state(viewport_state)`: Set the viewport state manager.
         *   **`waveform_scene.py`**: Manages `SignalItem`s and `TimeAxisItem`. Supports chunked reloading.
+            *   `set_data(parsed_log, lazy, chunk_manager)`: Set the parsed log data and render waveforms.
+            *   `set_visible_signals(signal_names)`: Update which signals are visible and rebuild the scene.
+            *   `set_time_range(start, end)`: Update the visible time range for viewport culling.
         *   **`signal_item.py`**: Renders waveforms using `BooleanRenderer` or `StateRenderer`.
         *   **`time_axis_item.py`**, **`grid_lines_item.py`**: Visual guides.
         *   **`zoom_controls.py`**, **`pan_controls.py`**: Navigation widgets.
@@ -52,11 +74,15 @@ Data flows from the entry point through parsing to the UI as follows:
 
 ### `utils/`
 *   **`chunk_manager.py`**: Connects `ChunkedParsedLog` to parsers for on-demand loading.
+    *   `get_entries_in_range(start_time, end_time, with_prefetch)`: Get entries in a time range, with optional prefetching.
+    *   `clear_cache()`: Clear all cached chunks.
 *   **`waveform_data.py`**: `SignalData` structure for visualization (lazy state computation).
 *   **`merge.py`**: Logic to combine multiple parsed logs.
 
 ### `validation/`
 *   **`validator.py`**: `SignalValidator` orchestrates validation rules.
+    *   `validate_device(device_id, signal_data_list)`: Validate all signals for a specific device.
+    *   `validate_all(parsed_log, signal_data_list)`: Validate all devices in a log.
 *   **`rule_loader.py`**: Loads rules from YAML.
 *   **`pattern_validators/`**: Contains specific validators like `SequenceValidator`.
 
