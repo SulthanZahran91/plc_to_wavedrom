@@ -43,6 +43,10 @@ Data flows from the entry point through parsing to the UI as follows:
     *   `parse_time_window(file_path, start_time, end_time)`: Parse only entries within a specific time window.
 *   **`plc_parser.py`**: `PLCDebugParser` implementation with an "ultra-fast" bracket-delimited parser (`_fast_parse_line`).
     *   `parse_time_window(file_path, start_time, end_time)`: Optimized time-window parsing for bracket-delimited format.
+*   **`mcs_parser.py`**: `MCSLogParser` for MCS/AMHS log format with `[ACTION=CommandID, CarrierID]` headers and `[Key=Value]` pairs.
+    *   `can_parse(file_path)`: Detect MCS log format.
+    *   `_parse_line_to_entries(line)`: Parse a single line into multiple signal entries.
+    *   `parse_time_window(file_path, start_time, end_time)`: Optimized time-window parsing.
 *   **`plc_tab_parser.py`**, **`csv_signal_parser.py`**: Specialized parsers for other formats.
 
 ### `ui/`
