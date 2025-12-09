@@ -5,7 +5,11 @@ from typing import Dict, List, Optional
 from datetime import date, datetime, timedelta
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -232,6 +236,145 @@ class MapViewerView(QWidget):
         self.media_controls.txt_time.returnPressed.connect(self._on_time_input)
         self.media_controls.cmb_date.currentIndexChanged.connect(self._on_date_changed)
         self.media_controls.cmb_date.setEnabled(False)
+        
+        # Add carrier tracking controls between renderer and media controls
+        carrier_controls = self._build_carrier_controls()
+        layout.insertWidget(layout.count() - 1, carrier_controls)  # Insert before media controls
+    
+    def _build_carrier_controls(self) -> QWidget:
+        """Build the carrier tracking control panel."""
+        panel = QWidget()
+        panel.setObjectName("CarrierControlsPanel")
+        panel.setStyleSheet("""
+            QWidget#CarrierControlsPanel {
+                background-color: #2b2b2b;
+                border-top: 1px solid #444;
+                padding: 8px;
+            }
+            QCheckBox {
+                color: #e0e0e0;
+                font-size: 11pt;
+            }
+            QLineEdit {
+                background-color: #3b3b3b;
+                color: #e0e0e0;
+                border: 1px solid #555;
+                border-radius: 3px;
+                padding: 4px 8px;
+                font-size: 10pt;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0078d4;
+            }
+            QPushButton {
+                background-color: #0078d4;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 6px 12px;
+                font-size: 10pt;
+            }
+            QPushButton:hover {
+                background-color: #1084d8;
+            }
+            QPushButton:pressed {
+                background-color: #006cbe;
+            }
+        """)
+        
+        layout = QHBoxLayout(panel)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(12)
+        
+        # Track Carriers checkbox
+        self.chk_track_carriers = QCheckBox("Track Carriers")
+        self.chk_track_carriers.setToolTip("Enable carrier tracking mode to display CarrierID on the map")
+        self.chk_track_carriers.stateChanged.connect(self._on_track_carriers_toggled)
+        layout.addWidget(self.chk_track_carriers)
+        
+        layout.addStretch()
+        
+        # Search carrier controls
+        search_label = QLabel("Search Carrier:")
+        search_label.setStyleSheet("color: #e0e0e0; font-size: 10pt;")
+        layout.addWidget(search_label)
+        
+        self.txt_search_carrier = QLineEdit()
+        self.txt_search_carrier.setPlaceholderText("Enter CarrierID...")
+        self.txt_search_carrier.setMinimumWidth(200)
+        self.txt_search_carrier.returnPressed.connect(self._on_search_carrier)
+        layout.addWidget(self.txt_search_carrier)
+        
+        btn_search = QPushButton("Find")
+        btn_search.clicked.connect(self._on_search_carrier)
+        layout.addWidget(btn_search)
+        
+        return panel
+    
+    def _on_track_carriers_toggled(self, state: int):
+        """Handle track carriers checkbox toggle."""
+        if not self.state_model:
+            return
+        
+        enabled = state == Qt.CheckState.Checked.value
+        self.state_model.enable_carrier_tracking = enabled
+        
+        # Update UI state
+        self.txt_search_carrier.setEnabled(enabled)
+        
+        if enabled:
+            print("[MapViewer] Carrier tracking enabled")
+        else:
+            print("[MapViewer] Carrier tracking disabled")
+    
+    def _on_search_carrier(self):
+        """Handle carrier search request."""
+        if not self.state_model:
+            QMessageBox.warning(
+                self,
+                "Map Not Loaded",
+                "Please load a map first."
+            )
+            return
+        
+        if not self.state_model.enable_carrier_tracking:
+            QMessageBox.information(
+                self,
+                "Carrier Tracking Disabled",
+                "Please enable 'Track Carriers' to search for carriers."
+            )
+            return
+        
+        carrier_id = self.txt_search_carrier.text().strip()
+        if not carrier_id:
+            QMessageBox.information(
+                self,
+                "No Carrier ID",
+                "Please enter a CarrierID to search."
+            )
+            return
+        
+        # Look up carrier location
+        unit_id = self.state_model.get_carrier_location(carrier_id)
+        
+        if unit_id:
+            # Highlight the unit
+            success = self.renderer.highlight_unit(unit_id)
+            if success:
+                print(f"[MapViewer] Found carrier '{carrier_id}' at unit '{unit_id}'")
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Unit Not Found",
+                    f"Carrier '{carrier_id}' is at unit '{unit_id}', but this unit is not visible on the map."
+                )
+        else:
+            QMessageBox.information(
+                self,
+                "Carrier Not Found",
+                f"CarrierID '{carrier_id}' not found in current data.\n\n"
+                f"Make sure the carrier has a CurrentLocation signal and is within the current time range."
+            )
 
     def set_signal_data(self, signal_data_list: List[SignalData]):
         """Update the signal data from the main window.

@@ -73,7 +73,9 @@ Data flows from the entry point through parsing to the UI as follows:
 *   **`windows/`**:
     *   **`timing_window.py`**: Embeddable view for waveforms.
     *   **`log_table_window.py`**: Tabular view of logs.
-    *   **`map_viewer_window.py`**: Container for the Map Viewer tool.
+    *   **`map_viewer_window.py`**: Container for the Map Viewer tool with carrier tracking controls.
+        *   `_on_track_carriers_toggled(state)`: Handle carrier tracking toggle.
+        *   `_on_search_carrier()`: Search and highlight carrier by ID on the map.
 *   **`dialogs/`**: `bookmark_dialog.py`, `help_dialog.py`.
 
 ### `utils/`
@@ -92,6 +94,13 @@ Data flows from the entry point through parsing to the UI as follows:
 
 ### `tools/map_viewer/`
 *   **`renderer.py`**: `MapRenderer` (QGraphicsView) for visualizing system layout.
+    *   `set_objects(objects)`: Render parsed objects into the scene.
+    *   `update_rect_color_by_unit(unit_id, block_color, arrow_color, text_overlay_info)`: Update colors/overlays by UnitId.
+    *   `highlight_unit(unit_id)`: Highlight and center view on a specific unit by UnitId.
+*   **`state_model.py`**: `UnitStateModel` manages state-to-color mapping and carrier tracking.
+    *   `enable_carrier_tracking`: Property to toggle carrier tracking mode.
+    *   `get_carrier_location(carrier_id)`: Get current location (UnitId) of a carrier.
+    *   `on_signal(event)`: Process signal events; intercepts `CurrentLocation` signals when tracking enabled.
 *   **`config.py`**: Loads mapping rules from `mappings_and_rules.yaml`.
 *   **`playback_demo.py`**: Standalone demo for the map viewer.
 
@@ -124,3 +133,4 @@ Data flows from the entry point through parsing to the UI as follows:
 *   **Dependencies:** `requirements.txt` lists `PyQt6`, but code uses `PySide6`.
 *   **Platform Specifics:** `main.py` has Wayland-specific window sizing logic.
 *   **Temporary Files:** Use `/tmp` for temporary storage.
+*   **Carrier Tracking:** Map Viewer feature to display CarrierID at CurrentLocation (disabled by default). When enabled, `CurrentLocation` signals bypass standard color policy and display CarrierID as text overlay. Long IDs are truncated from the start to show unique suffix.

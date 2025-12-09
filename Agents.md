@@ -40,6 +40,6 @@ Use `uv` for all dependency operations.
 ## AGENTS GUIDELINES
 
   * Read CONTEXT.md for project overview and architecture philosophy.
-  * At the end, update context.md with the changes you have made.
+  * At the end, update context.md with the changes you have made. PUT THIS PART IN YOUR IMPLEMENTATION PLAN.
 
   
