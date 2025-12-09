@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable, Optional
 from bisect import bisect_left
 from datetime import datetime
+import csv
 
 from PySide6.QtWidgets import (
     QWidget,
@@ -310,6 +311,7 @@ class LogTableView(QWidget):
         header = create_header_bar(
             "Log Table",
             "Browse parsed rows, filter signals, and run validation rules.",
+            extra_widgets=[self._create_save_button()],
         )
         root_layout.addWidget(header)
 
@@ -457,6 +459,58 @@ class LogTableView(QWidget):
 
         if self._interval_request_handler:
             self._interval_request_handler(signal_key)
+
+    def _create_save_button(self) -> QPushButton:
+        """Create the save button for the header."""
+        btn = QPushButton("Save Table")
+        btn.setToolTip("Export current table data to CSV")
+        btn.clicked.connect(self._on_save_clicked)
+        apply_secondary_button_style(btn)
+        return btn
+
+    def _on_save_clicked(self):
+        """Handle save button click."""
+        if not self.data_table or not self.data_table.model or not self.data_table.model._entries:
+            QMessageBox.warning(self, "No Data", "No data to save.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Table Data",
+            str(Path.cwd() / "log_export.csv"),
+            "CSV Files (*.csv);;All Files (*)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            entries = self.data_table.model._entries
+            with open(file_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                # Write header
+                writer.writerow(["Device ID", "Signal Name", "Timestamp", "Value", "Type"])
+                # Write data
+                for entry in entries:
+                    writer.writerow([
+                        entry.device_id,
+                        entry.signal_name,
+                        entry.timestamp.isoformat(),
+                        entry.value,
+                        entry.signal_type.value
+                    ])
+            
+            QMessageBox.information(
+                self,
+                "Save Complete",
+                f"Successfully saved {len(entries)} rows to:\n{file_path}"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Save Error",
+                f"Failed to save file:\n{str(e)}"
+            )
 
 
 # Backward compatibility alias
