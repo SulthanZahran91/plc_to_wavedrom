@@ -180,6 +180,75 @@ class TestMCSLogParser(unittest.TestCase):
             self.assertFalse(result)
         finally:
             os.unlink(path)
+    
+    def test_parse_simplified_format(self):
+        """Test parsing simplified format with single-parameter action header."""
+        # Simplified format: [ACTION=CarrierID] instead of [ACTION=CommandID, CarrierID]
+        line = "2025-12-09 00:00:01.443 [UPDATE=SDADTN490165] [CarrierLoc=B1ACNV13301-108]"
+        entries = self.parser._parse_line_to_entries(line)
+        
+        # Should have 2 entries: _Action and CarrierLoc (mapped to CurrentLocation)
+        self.assertEqual(len(entries), 2)
+        
+        # Check device_id
+        self.assertEqual(entries[0][0], "SDADTN490165")
+        
+        # Check _Action entry
+        self.assertEqual(entries[0][1], "_Action")
+        self.assertEqual(entries[0][3], "UPDATE")
+        
+        # Check CurrentLocation entry (should be mapped from CarrierLoc)
+        self.assertEqual(entries[1][1], "CurrentLocation")
+        self.assertEqual(entries[1][3], "B1ACNV13301-108")
+    
+    def test_signal_name_mapping(self):
+        """Test that CarrierLoc is mapped to CurrentLocation."""
+        # Test various signal name mappings
+        test_cases = [
+            ("2025-12-09 00:00:01.443 [UPDATE=CARRIER123] [CarrierLoc=LOC-001]", "CurrentLocation"),
+            ("2025-12-09 00:00:01.443 [UPDATE=CARRIER123] [CarrierLocation=LOC-001]", "CurrentLocation"),
+            ("2025-12-09 00:00:01.443 [UPDATE=CARRIER123] [CurrentLocation=LOC-001]", "CurrentLocation"),
+        ]
+        
+        for line, expected_signal in test_cases:
+            entries = self.parser._parse_line_to_entries(line)
+            signal_names = [e[1] for e in entries]
+            self.assertIn(expected_signal, signal_names, 
+                         f"Expected {expected_signal} in {signal_names} for line: {line}")
+    
+    def test_can_parse_simplified_format(self):
+        """Test can_parse returns True for simplified MCS format."""
+        import tempfile
+        import os
+        
+        content = """2025-12-09 00:00:01.443 [UPDATE=SDADTN490165] [CarrierLoc=B1ACNV13301-108]
+2025-12-09 00:00:01.443 [UPDATE=SDADTN490165] [CarrierTransferringState=WaitIn]
+2025-12-09 00:00:01.960 [UPDATE=SDADTN490165] [CarrierTransferringState=Transferring]
+2025-12-09 00:00:13.493 [REMOVE=SDADTN490140] [CarrierID=SDADTN490140], [CarrierLoc=B1ACNV13301-606]
+"""
+        
+        fd, path = tempfile.mkstemp(suffix='.log')
+        try:
+            os.write(fd, content.encode('utf-8'))
+            os.close(fd)
+            
+            result = self.parser.can_parse(path)
+            self.assertTrue(result)
+        finally:
+            os.unlink(path)
+    
+    def test_simplified_no_command_id(self):
+        """Test that simplified format doesn't create _CommandID entry."""
+        line = "2025-12-09 00:00:01.443 [UPDATE=SDADTN490165] [CarrierLoc=B1ACNV13301-108]"
+        entries = self.parser._parse_line_to_entries(line)
+        
+        signal_names = [e[1] for e in entries]
+        # Should NOT have _CommandID in simplified format
+        self.assertNotIn("_CommandID", signal_names)
+        # Should have _Action
+        self.assertIn("_Action", signal_names)
+        # Should have CurrentLocation (mapped from CarrierLoc)
+        self.assertIn("CurrentLocation", signal_names)
 
 
 if __name__ == '__main__':
