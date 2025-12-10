@@ -794,6 +794,33 @@ def _try_fast_parse_worker(
 
         return (device_id, signal, ts_str, value_str, dtype_token, path)
 
+    elif parser_name == "mcs_log":
+        # MCS format - special handling for multi-entry lines
+        # Format: "YYYY-MM-DD HH:MM:SS.mmm [ACTION=ID] [Key=Value], [Key2=Value2], ..."
+        # or: "YYYY-MM-DD HH:MM:SS.mmm [ACTION=ID1, ID2] [Key=Value], ..."
+        
+        # Return special marker indicating MCS multi-entry line
+        # We'll use a special tuple format: (None, None, line, None, None, "MCS_MULTI_ENTRY")
+        # The worker will recognize this and process it differently
+        if '[' not in line or '=' not in line:
+            return None
+        
+        # Quick validation - must start with timestamp and have [ACTION=...]
+        if len(line) < 20:
+            return None
+        
+        # Check for action pattern
+        action_start = line.find('[', 19)
+        if action_start == -1:
+            return None
+        
+        action_content = line[action_start+1:action_start+10]  # Check first few chars
+        if not any(act in action_content for act in ['ADD=', 'UPDATE=', 'REMOVE=']):
+            return None
+        
+        # Return special marker with the full line
+        return (None, None, line, None, None, "MCS_MULTI_ENTRY")
+
     # Add more parser types here as needed
     return None
 
@@ -874,6 +901,34 @@ def _parse_lines_batch(
                 pass  # Fall back to regex on any error
 
             if fast_result is not None:
+                # Check if this is an MCS multi-entry line
+                if len(fast_result) >= 6 and fast_result[5] == "MCS_MULTI_ENTRY":
+                    # Import MCS parser's line parsing logic
+                    try:
+                        from plc_visualizer.parsers.mcs_parser import MCSLogParser
+                        mcs_parser = MCSLogParser()
+                        
+                        # Parse the line to get multiple entries
+                        line_entries = mcs_parser._parse_line_to_entries(fast_result[2])
+                        
+                        for device_id, signal, timestamp, value, signal_type in line_entries:
+                            # Convert timestamp to string for pickling
+                            ts_str = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+                            entries.append((device_id, signal, ts_str, value, signal_type))
+                            signals.add(f"{device_id}::{signal}")
+                            devices.add(device_id)
+                        
+                        continue  # Skip regex parsing
+                    except Exception as e:
+                        # If MCS parsing fails, log error and continue
+                        errors.append(ParseError(
+                            line=line_no,
+                            content=fast_result[2][:100],
+                            reason=f"MCS multi-entry parsing failed: {e}"
+                        ))
+                        continue
+                
+                # Regular single-entry fast parse
                 device_id, signal, ts_str, raw, dtype_token, path = fast_result
 
                 st = cfg.type_map.get(dtype_token.lower()) if dtype_token else None
