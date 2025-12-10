@@ -93,6 +93,9 @@ class MapRenderer(QGraphicsView):
         self._arrow_overlays_by_unit: Dict[str, Any] = {}
         # object bounds cache for alignment debugging
         self._object_bounds: Dict[str, Dict[str, Any]] = {}
+        
+        # Reference to state model for carrier info display
+        self._state_model: Optional[Any] = None
 
     # ---------- Public API ----------
     def set_objects(self, objects: Dict[str, Dict[str, Any]]) -> None:
@@ -206,6 +209,14 @@ class MapRenderer(QGraphicsView):
                 }
 
         self.fitInView(self.scene.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
+    
+    def set_state_model(self, state_model: Any) -> None:
+        """Set the state model for carrier tracking info display.
+        
+        Args:
+            state_model: UnitStateModel instance
+        """
+        self._state_model = state_model
 
     def update_rect_color_by_unit(self, unit_id: str, block_color: Optional[QColor] = None,
                                    arrow_color: Optional[QColor] = None,
@@ -649,7 +660,22 @@ class MapRenderer(QGraphicsView):
             f"<b>Size:</b> {data.get('size','N/A')}",
         ]
         if data.get('text'):   info.append(f"<b>Text:</b> {data.get('text')}")
-        if data.get('UnitId'): info.append(f"<b>UnitId:</b> {data.get('UnitId')}")
+        if data.get('UnitId'): 
+            unit_id = data.get('UnitId')
+            info.append(f"<b>UnitId:</b> {unit_id}")
+            
+            # Show carrier information if carrier tracking is enabled
+            if self._state_model and hasattr(self._state_model, 'enable_carrier_tracking'):
+                if self._state_model.enable_carrier_tracking:
+                    carriers = self._state_model.get_carriers_at_unit(unit_id)
+                    if carriers:
+                        # Show carrier list
+                        carrier_list = ", ".join(carriers)
+                        info.append(f"<b>Carriers:</b> {carrier_list}")
+                        # Show count if multiple
+                        if len(carriers) > 1:
+                            info.append(f"<b>Carrier Count:</b> {len(carriers)}")
+        
         if data.get('render_type') == 'arrow':
             for k in ("FlowDirection","LineThick","EndCap","ForeColor"):
                 if data.get(k): info.append(f"<b>{k}:</b> {data.get(k)}")

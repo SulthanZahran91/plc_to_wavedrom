@@ -133,4 +133,8 @@ Data flows from the entry point through parsing to the UI as follows:
 *   **Dependencies:** `requirements.txt` lists `PyQt6`, but code uses `PySide6`.
 *   **Platform Specifics:** `main.py` has Wayland-specific window sizing logic.
 *   **Temporary Files:** Use `/tmp` for temporary storage.
-*   **Carrier Tracking:** Map Viewer feature to display CarrierID at CurrentLocation (disabled by default). When enabled, `CurrentLocation` signals bypass standard color policy and display CarrierID as text overlay. Long IDs are truncated from the start to show unique suffix.
+*   **Carrier Tracking:** Map Viewer feature to display CarrierID at CurrentLocation (disabled by default, MCS/AMHS logs only). 
+    *   **Display Logic:** Single carrier shows CarrierID (truncated from start for long IDs); multiple carriers show count (e.g., "2x", "3x").
+    *   **Info Box:** Left-clicking a unit shows detailed carrier list and count in the info panel.
+    *   **Edge Cases:** Validates CurrentLocation signals exist before enabling. Handles null/empty locations by clearing overlays. Updates count when carriers move.
+    *   **Implementation:** `state_model._update_unit_display()` manages overlay logic; `renderer._show_info()` displays carrier details.
