@@ -110,24 +110,25 @@ class UnitStateModel(QObject):
         new_unit_id = str(event.value) if event.value else None
         old_unit_id = self._carrier_locations.get(carrier_id)
         
-        # Clear old location if carrier moved
-        if old_unit_id and old_unit_id != new_unit_id:
+        # Skip if location hasn't changed
+        if old_unit_id == new_unit_id:
+            return
+        
+        # Update carrier location in dictionary FIRST (before updating displays)
+        # This ensures get_carriers_at_unit() returns correct counts
+        if new_unit_id:
+            self._carrier_locations[carrier_id] = new_unit_id
+        elif carrier_id in self._carrier_locations:
+            del self._carrier_locations[carrier_id]
+        
+        # Now update displays with correct carrier counts
+        if old_unit_id:
             # Update the old unit's display (will show remaining carriers or clear)
             self._update_unit_display(old_unit_id)
         
-        # Update carrier location
         if new_unit_id:
-            self._carrier_locations[carrier_id] = new_unit_id
             # Update the new unit's display
             self._update_unit_display(new_unit_id)
-        else:
-            # Carrier removed/cleared (null or empty location)
-            if carrier_id in self._carrier_locations:
-                # Get old location before removing
-                removed_unit_id = self._carrier_locations[carrier_id]
-                del self._carrier_locations[carrier_id]
-                # Clear the text overlay from the old location
-                self._update_unit_display(removed_unit_id)
     
     def _get_carrier_count_color(self, count: int) -> Optional[QColor]:
         """Get the background color based on the number of carriers at a unit.

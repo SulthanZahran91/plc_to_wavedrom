@@ -68,6 +68,8 @@ def test_carrier_tracking():
     
     carriers_at_a = model.get_carriers_at_unit("UNIT_A")
     assert "CARRIER002" in carriers_at_a, "CARRIER002 should be at UNIT_A"
+    # CRITICAL: Verify CARRIER001 is NOT at UNIT_A after moving to UNIT_B
+    assert "CARRIER001" not in carriers_at_a, "CARRIER001 should NOT be at UNIT_A (it moved to UNIT_B)"
     print("✓ Test 5 passed: Multiple carriers tracked independently")
     
     # Test 6: Disable carrier tracking clears state
