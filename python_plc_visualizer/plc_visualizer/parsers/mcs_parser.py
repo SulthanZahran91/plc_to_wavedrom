@@ -98,6 +98,21 @@ class MCSLogParser(GenericTemplateLogParser):
         'CarrierLocation': 'CurrentLocation',
     }
 
+    def parse(
+        self,
+        file_path: str,
+        num_workers: Optional[int] = None,
+        *,
+        use_processes: bool = False,
+    ) -> ParseResult:
+        """Override to force single-threaded parsing.
+        
+        MCS parser uses _parse_line_to_entries which returns multiple entries
+        per line, incompatible with the generic multiprocessing workers.
+        """
+        # Always use single-threaded parsing for MCS format
+        return self._parse_single(file_path)
+    
     def can_parse(self, file_path: str) -> bool:
         """Check if this parser can handle the file."""
         try:

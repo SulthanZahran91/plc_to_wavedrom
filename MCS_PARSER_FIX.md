@@ -66,6 +66,19 @@ if command_id:
     entries.append((..., "_CommandID", ..., command_id, ...))
 ```
 
+### 5. Fixed Multiprocessing Issue
+Disabled multiprocessing for MCS parser by overriding `parse()` method:
+```python
+def parse(self, file_path, num_workers=None, *, use_processes=False):
+    # Always use single-threaded parsing for MCS format
+    return self._parse_single(file_path)
+```
+
+**Why?** The MCS parser's custom `_parse_line_to_entries()` method returns multiple
+entries per line, which is incompatible with the generic multiprocessing workers
+that expect one entry per line. Single-threaded parsing is still very fast for
+typical MCS log files.
+
 ## Testing
 Added comprehensive test cases in `test_mcs_parser.py`:
 - `test_parse_simplified_format()` - Verify simplified format parsing
