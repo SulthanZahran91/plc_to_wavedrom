@@ -236,9 +236,10 @@ class MapRenderer(QGraphicsView):
             data = it.data(0) or {}
             render_type = data.get('render_type')
             if render_type in ('rectangle', 'arrowed_rectangle'):
-                if block_color is not None:
-                    it.setBrush(QBrush(block_color))
-                    changed += 1
+                # Use block_color if provided, otherwise restore default gray
+                color_to_use = block_color if block_color is not None else QColor(211, 211, 211)
+                it.setBrush(QBrush(color_to_use))
+                changed += 1
                 rect_items.append(it)
 
         # Handle arrow overlay color for arrowed rectangles
@@ -300,7 +301,7 @@ class MapRenderer(QGraphicsView):
         Args:
             unit_id: The unit ID
             rect_item: The rectangle item to overlay text on
-            character: The text to display (may be truncated if too long)
+            character: The text to display (may contain newlines for multi-carrier)
             text_color: The color of the text
         """
         # Get rectangle bounds
@@ -313,51 +314,47 @@ class MapRenderer(QGraphicsView):
         # Remove existing overlay if any
         self._remove_text_overlay(unit_id)
         
-        # Truncate from start if text is too long (prioritize unique suffix)
-        display_text = character
+        # Check if multi-line text
+        lines = character.split('\n')
+        num_lines = len(lines)
+        
+        # For multi-line, truncate each line from start (prioritize unique suffix)
+        max_chars_per_line = 12  # Reasonable limit per line
+        display_lines = []
+        for line in lines:
+            if len(line) > max_chars_per_line:
+                display_lines.append('...' + line[-(max_chars_per_line-3):])
+            else:
+                display_lines.append(line)
+        display_text = '\n'.join(display_lines)
+        
+        # Create text item
         font = QFont("Arial", 12)
         font.setBold(True)
         
-        # Create temporary text item to measure
-        temp_text = self.scene.addText(display_text)
-        temp_text.setFont(font)
-        temp_bounds = temp_text.boundingRect()
-        self.scene.removeItem(temp_text)
-        
-        # Target size is 80% of smaller dimension
-        target_size = min(rect_width, rect_height) * 0.8
-        
-        # Check if we need to truncate
-        # We'll use a simple approach: if text is too wide even when scaled, truncate from start
-        max_chars = len(display_text)
-        while max_chars > 4 and temp_bounds.width() > 0:
-            scale_factor = target_size / max(temp_bounds.width(), temp_bounds.height())
-            # If scaled width would still be larger than available width, truncate
-            if temp_bounds.width() * scale_factor > rect_width * 0.9:
-                # Truncate from start, keep suffix
-                max_chars -= 1
-                display_text = "..." + character[-max_chars:]
-                temp_text = self.scene.addText(display_text)
-                temp_text.setFont(font)
-                temp_bounds = temp_text.boundingRect()
-                self.scene.removeItem(temp_text)
-            else:
-                break
-
-        # Create final text item
         text_item = self.scene.addText(display_text)
         text_item.setDefaultTextColor(text_color)
         text_item.setFont(font)
-
-        # Measure and scale
+        
+        # Measure text
         text_bounds = text_item.boundingRect()
-        scale_factor = target_size / max(text_bounds.width(), text_bounds.height())
+        
+        # Scale to fit 90% of rectangle (leaving margin)
+        available_width = rect_width * 0.9
+        available_height = rect_height * 0.9
+        
+        scale_x = available_width / text_bounds.width() if text_bounds.width() > 0 else 1.0
+        scale_y = available_height / text_bounds.height() if text_bounds.height() > 0 else 1.0
+        
+        # Use the smaller scale to maintain aspect ratio and fit within rectangle
+        scale_factor = min(scale_x, scale_y, 2.0)  # Cap at 2x to prevent overly large text
         text_item.setScale(scale_factor)
-
+        
         # Center the text in the rectangle
-        scaled_bounds = text_item.boundingRect()
-        center_x = rect_x + (rect_width - scaled_bounds.width() * scale_factor) / 2
-        center_y = rect_y + (rect_height - scaled_bounds.height() * scale_factor) / 2
+        scaled_width = text_bounds.width() * scale_factor
+        scaled_height = text_bounds.height() * scale_factor
+        center_x = rect_x + (rect_width - scaled_width) / 2
+        center_y = rect_y + (rect_height - scaled_height) / 2
         text_item.setPos(center_x, center_y)
 
         # Set Z-index higher than rectangles

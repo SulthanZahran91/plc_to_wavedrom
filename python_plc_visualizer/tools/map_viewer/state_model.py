@@ -178,8 +178,12 @@ class UnitStateModel(QObject):
         elif carrier_count == 1:
             # Single carrier, show the carrier ID
             text_info = (carriers_at_unit[0], QColor(0, 0, 0))  # Black text
+        elif carrier_count <= 3:
+            # 2-3 carriers: show all IDs with line breaks
+            carrier_text = "\n".join(carriers_at_unit)
+            text_info = (carrier_text, QColor(0, 0, 0))  # Black text
         else:
-            # Multiple carriers, show count
+            # 4+ carriers: show count to avoid overcrowding
             count_text = f"{carrier_count}x"
             text_info = (count_text, QColor(0, 0, 0))  # Black text
         
@@ -188,11 +192,8 @@ class UnitStateModel(QObject):
         
         # Update internal state and emit signal
         self._text_overlays[unit_id] = text_info
-        if block_color is not None:
-            self._block_colors[unit_id] = block_color
-        elif unit_id in self._block_colors and self._enable_carrier_tracking:
-            # Clear carrier-based color when no carriers (restore default)
-            self._block_colors[unit_id] = None
+        # Always update block_color (including when None to clear color)
+        self._block_colors[unit_id] = block_color
         
         self.stateChanged.emit(
             unit_id,
