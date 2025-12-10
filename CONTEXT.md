@@ -75,7 +75,10 @@ Data flows from the entry point through parsing to the UI as follows:
     *   **`log_table_window.py`**: Tabular view of logs.
     *   **`map_viewer_window.py`**: Container for the Map Viewer tool with carrier tracking controls.
         *   `_on_track_carriers_toggled(state)`: Handle carrier tracking toggle.
-        *   `_on_search_carrier()`: Search and highlight carrier by ID on the map.
+        *   `_on_follow_toggle()`: Handle Follow/Stop Follow button toggle.
+        *   `_on_follow_carrier()`: Start following a carrier (highlight and track during playback).
+        *   `_stop_following()`: Stop following the current carrier.
+        *   `_update_followed_carrier()`: Update followed carrier position during playback.
 *   **`dialogs/`**: `bookmark_dialog.py`, `help_dialog.py`.
 
 ### `utils/`
@@ -100,6 +103,7 @@ Data flows from the entry point through parsing to the UI as follows:
 *   **`state_model.py`**: `UnitStateModel` manages state-to-color mapping and carrier tracking.
     *   `enable_carrier_tracking`: Property to toggle carrier tracking mode.
     *   `get_carrier_location(carrier_id)`: Get current location (UnitId) of a carrier.
+    *   `find_carriers_like(pattern)`: Fuzzy search for carriers matching a pattern (case-insensitive partial match).
     *   `on_signal(event)`: Process signal events; intercepts `CurrentLocation` signals when tracking enabled.
 *   **`config.py`**: Loads mapping rules from `mappings_and_rules.yaml`.
 *   **`playback_demo.py`**: Standalone demo for the map viewer.
@@ -137,5 +141,6 @@ Data flows from the entry point through parsing to the UI as follows:
     *   **Display Logic:** Single carrier shows CarrierID (truncated from start for long IDs); multiple carriers show count (e.g., "2x", "3x").
     *   **Color Gradient:** Unit background color changes based on carrier count: 0=default, 1=green (#90EE90), 2=yellow (#FFD700), 3=orange (#FFA500), 4+=red gradient.
     *   **Info Box:** Left-clicking a unit shows detailed carrier list and count in the info panel.
+    *   **Follow Feature:** "Follow" button uses partial/fuzzy matching (case-insensitive). When multiple carriers match, a selection dialog appears. The view follows the carrier as it moves between units. "Stop Follow" ends tracking.
     *   **Edge Cases:** Validates CurrentLocation signals exist before enabling. Handles null/empty locations by clearing overlays. Updates count when carriers move.
-    *   **Implementation:** `state_model._get_carrier_count_color()` determines block color; `state_model._update_unit_display()` manages overlay and color logic; `renderer._show_info()` displays carrier details.
+    *   **Implementation:** `state_model._get_carrier_count_color()` determines block color; `state_model._update_unit_display()` manages overlay and color logic; `state_model.find_carriers_like()` for fuzzy search; `map_viewer_window._show_carrier_selection_dialog()` for multi-match selection.

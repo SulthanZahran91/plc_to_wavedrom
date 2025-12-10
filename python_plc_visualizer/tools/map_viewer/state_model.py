@@ -73,6 +73,22 @@ class UnitStateModel(QObject):
         """Get the current location (UnitId) of a carrier."""
         return self._carrier_locations.get(carrier_id)
     
+    def find_carriers_like(self, pattern: str) -> list[tuple[str, str]]:
+        """Find all carriers whose ID contains the given pattern (case-insensitive).
+        
+        Args:
+            pattern: The partial carrier ID to search for
+            
+        Returns:
+            List of (carrier_id, unit_id) tuples for matching carriers
+        """
+        pattern_lower = pattern.lower()
+        return [
+            (cid, uid) 
+            for cid, uid in self._carrier_locations.items() 
+            if pattern_lower in cid.lower()
+        ]
+    
     def get_carriers_at_unit(self, unit_id: str) -> list[str]:
         """Get all carriers currently at a given unit."""
         return [cid for cid, uid in self._carrier_locations.items() if uid == unit_id]
