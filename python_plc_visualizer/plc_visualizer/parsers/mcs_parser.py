@@ -26,10 +26,14 @@ Each key-value pair is treated as a signal update for the carrier (device_id).
 
 import re
 import sys
+import logging
 from datetime import datetime
 from typing import Optional, List, Tuple
 from .base_parser import GenericTemplateLogParser, _infer_type_fast, _parse_value_fast, _fast_ts
 from plc_visualizer.models import LogEntry, ParseResult, ParsedLog, ParseError, SignalType
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 class MCSLogParser(GenericTemplateLogParser):
@@ -98,6 +102,7 @@ class MCSLogParser(GenericTemplateLogParser):
         'CarrierLocation': 'CurrentLocation',
     }
 
+    
     def can_parse(self, file_path: str) -> bool:
         """Check if this parser can handle the file."""
         try:
@@ -117,7 +122,9 @@ class MCSLogParser(GenericTemplateLogParser):
                         break
                 
                 # Need at least 60% match rate
-                return checked > 0 and (matched / checked) >= 0.6
+                result = checked > 0 and (matched / checked) >= 0.6
+                logger.info(f"MCS parser detection: {matched}/{checked} lines matched (result: {result}) - {file_path}")
+                return result
         except Exception:
             return False
 
@@ -174,6 +181,7 @@ class MCSLogParser(GenericTemplateLogParser):
         # Match the line format
         m = self.LINE_RE.match(line)
         if not m:
+            logger.debug(f"MCS line did not match regex: {line[:100]}")
             return entries
         
         # Extract components
@@ -188,10 +196,12 @@ class MCSLogParser(GenericTemplateLogParser):
             # Original format: [ACTION=CommandID, CarrierID]
             command_id = first_id
             carrier_id = second_id_match.strip()
+            logger.debug(f"MCS format detected (2-param): carrier={carrier_id}, cmd={command_id}")
         else:
             # Simplified format: [ACTION=CarrierID]
             command_id = ''  # No command ID in this format
             carrier_id = first_id
+            logger.debug(f"MCS format detected (1-param): carrier={carrier_id}")
         
         # Parse timestamp
         try:
@@ -200,6 +210,7 @@ class MCSLogParser(GenericTemplateLogParser):
             try:
                 timestamp = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S.%f")
             except ValueError:
+                logger.warning(f"Failed to parse timestamp: {ts_str}")
                 return entries  # Can't parse timestamp
         
         # Use carrier_id as device_id
@@ -254,6 +265,7 @@ class MCSLogParser(GenericTemplateLogParser):
                 signal_type
             ))
         
+        logger.debug(f"MCS line parsed into {len(entries)} entries for device {device_id}")
         return entries
 
     def _fast_parse_line(self, line: str, did_re: re.Pattern) -> Optional[LogEntry]:
@@ -269,6 +281,8 @@ class MCSLogParser(GenericTemplateLogParser):
         import time
         start_time = time.perf_counter()
         
+        logger.info(f"MCS parser starting single-threaded parse of: {file_path}")
+        
         entries: List[LogEntry] = []
         signals: set = set()
         devices: set = set()
@@ -283,6 +297,10 @@ class MCSLogParser(GenericTemplateLogParser):
                     line = line.strip()
                     if not line:
                         continue
+                    
+                    # Progress logging every 10k lines
+                    if line_num % 10000 == 0:
+                        logger.info(f"MCS parse progress: {line_num} lines processed, {len(entries)} entries so far")
                     
                     try:
                         # Parse line into multiple entries
@@ -335,6 +353,10 @@ class MCSLogParser(GenericTemplateLogParser):
         
         parsed = ParsedLog(entries=entries, signals=signals, devices=devices)
         elapsed = time.perf_counter() - start_time
+        
+        logger.info(f"MCS parse complete: {len(entries)} entries, {len(devices)} devices, "
+                   f"{len(signals)} signals, {len(errors)} errors in {elapsed:.2f}s")
+        
         return ParseResult(data=parsed, errors=errors, processing_time=elapsed)
 
     def parse_time_window(
