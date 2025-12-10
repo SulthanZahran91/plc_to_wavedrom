@@ -129,30 +129,73 @@ class UnitStateModel(QObject):
                 # Clear the text overlay from the old location
                 self._update_unit_display(removed_unit_id)
     
+    def _get_carrier_count_color(self, count: int) -> Optional[QColor]:
+        """Get the background color based on the number of carriers at a unit.
+        
+        Color gradient:
+        - 0 carriers: None (use default/transparent)
+        - 1 carrier:  Light green (#90EE90 - indicates normal occupancy)
+        - 2 carriers: Yellow (#FFD700 - indicates moderate load)
+        - 3 carriers: Orange (#FFA500 - indicates high load)
+        - 4+ carriers: Red (#FF4444 - indicates congestion/concern)
+        
+        Args:
+            count: Number of carriers at the unit
+            
+        Returns:
+            QColor for the block background, or None for default
+        """
+        if count == 0:
+            return None  # No color/use default
+        elif count == 1:
+            return QColor(144, 238, 144)  # Light green
+        elif count == 2:
+            return QColor(255, 215, 0)  # Yellow/Gold
+        elif count == 3:
+            return QColor(255, 165, 0)  # Orange
+        else:
+            # 4+ carriers - red (more intense for higher counts)
+            intensity = min(count - 3, 5)  # Cap intensity boost
+            red = min(255, 255)
+            green = max(0, 68 - intensity * 10)  # Gets darker red
+            blue = max(0, 68 - intensity * 10)
+            return QColor(red, green, blue)
+    
     def _update_unit_display(self, unit_id: str):
-        """Update the text overlay for a unit based on carrier count.
+        """Update the text overlay and color for a unit based on carrier count.
         
         Args:
             unit_id: The unit to update display for
         """
         carriers_at_unit = self.get_carriers_at_unit(unit_id)
+        carrier_count = len(carriers_at_unit)
         
-        if not carriers_at_unit:
+        # Determine text overlay
+        if carrier_count == 0:
             # No carriers, clear the overlay
             text_info = None
-        elif len(carriers_at_unit) == 1:
+        elif carrier_count == 1:
             # Single carrier, show the carrier ID
             text_info = (carriers_at_unit[0], QColor(0, 0, 0))  # Black text
         else:
             # Multiple carriers, show count
-            count_text = f"{len(carriers_at_unit)}x"
+            count_text = f"{carrier_count}x"
             text_info = (count_text, QColor(0, 0, 0))  # Black text
+        
+        # Determine block color based on carrier count
+        block_color = self._get_carrier_count_color(carrier_count)
         
         # Update internal state and emit signal
         self._text_overlays[unit_id] = text_info
+        if block_color is not None:
+            self._block_colors[unit_id] = block_color
+        elif unit_id in self._block_colors and self._enable_carrier_tracking:
+            # Clear carrier-based color when no carriers (restore default)
+            self._block_colors[unit_id] = None
+        
         self.stateChanged.emit(
             unit_id,
-            self._block_colors.get(unit_id),
+            block_color,  # Emit the carrier-count-based color
             self._arrow_colors.get(unit_id),
             text_info
         )
