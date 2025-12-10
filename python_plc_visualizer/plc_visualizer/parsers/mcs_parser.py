@@ -1,14 +1,25 @@
 """
 MCS (Material Control System) Log Parser.
 
-Parses AMHS/MCS log format with bracketed key-value pairs:
-  2025-12-05 00:00:35.404 [REMOVE=MANUAL_SKID-..., SDENTP490038] [Key=Value], [Key2=Value2], ...
-  2025-12-05 00:00:36.322 [UPDATE=336182, BBADFB0397] [CurrentLocation=B1ACNV13301-120]
+Parses AMHS/MCS log format with bracketed key-value pairs.
+
+Supported formats:
+  1. Original format (two-parameter):
+     2025-12-05 00:00:35.404 [REMOVE=CommandID, CarrierID] [Key=Value], [Key2=Value2], ...
+     2025-12-05 00:00:36.322 [UPDATE=336182, BBADFB0397] [CurrentLocation=B1ACNV13301-120]
+  
+  2. Simplified format (single-parameter):
+     2025-12-09 00:00:01.443 [UPDATE=CarrierID] [CarrierLoc=B1ACNV13301-108]
+     2025-12-09 00:00:13.493 [ADD=SDADTN490140] [CarrierID=SDADTN490140], [CarrierLoc=B1ACNV13301-129]
 
 Log structure:
   - Timestamp: YYYY-MM-DD HH:MM:SS.mmm
-  - Action header: [ACTION=CommandID, CarrierID] where ACTION is ADD, UPDATE, or REMOVE
+  - Action header: [ACTION=CommandID, CarrierID] or [ACTION=CarrierID]
+    where ACTION is ADD, UPDATE, or REMOVE
   - Key-value pairs: [Key=Value] format, comma-separated
+
+Signal name mapping:
+  - CarrierLoc, CarrierLocation → CurrentLocation (for carrier tracking compatibility)
 
 Each key-value pair is treated as a signal update for the carrier (device_id).
 """
@@ -36,10 +47,12 @@ class MCSLogParser(GenericTemplateLogParser):
     name = "mcs_log"
     
     # Regex for initial line detection
-    # Matches: timestamp [ACTION=..., CarrierID] [Key=Value]
+    # Matches both formats:
+    #   [ACTION=CommandID, CarrierID] [Key=Value]  (original format)
+    #   [ACTION=CarrierID] [Key=Value]              (simplified format)
     LINE_RE = re.compile(
         r'^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)\s+'  # timestamp
-        r'\[(?P<action>ADD|UPDATE|REMOVE)=(?P<command_id>[^,\]]+),\s*(?P<carrier_id>[^\]]+)\]'  # action header
+        r'\[(?P<action>ADD|UPDATE|REMOVE)=(?P<first_id>[^,\]]+)(?:,\s*(?P<second_id>[^\]]+))?\]'  # action header
         r'\s*(?P<kvpairs>.*)?$'  # remaining key-value pairs
     )
     
@@ -76,6 +89,13 @@ class MCSLogParser(GenericTemplateLogParser):
     STATE_KEYS = {
         'TransferState', 'TransferState2', 'TransferAbnormalState', 
         'TransferAbnormalState2', 'ResultCode', 'ResultCode2', 'CommandType'
+    }
+    
+    # Signal name mapping - normalize alternative names to canonical forms
+    # This allows carrier tracking to work with different log format variations
+    SIGNAL_NAME_MAP = {
+        'CarrierLoc': 'CurrentLocation',  # Map CarrierLoc to CurrentLocation for carrier tracking
+        'CarrierLocation': 'CurrentLocation',
     }
 
     def can_parse(self, file_path: str) -> bool:
@@ -159,9 +179,19 @@ class MCSLogParser(GenericTemplateLogParser):
         # Extract components
         ts_str = m.group('ts')
         action = m.group('action')
-        command_id = m.group('command_id').strip()
-        carrier_id = m.group('carrier_id').strip()
+        first_id = m.group('first_id').strip()
+        second_id_match = m.group('second_id')
         kvpairs_str = m.group('kvpairs') or ''
+        
+        # Determine command_id and carrier_id based on format
+        if second_id_match:
+            # Original format: [ACTION=CommandID, CarrierID]
+            command_id = first_id
+            carrier_id = second_id_match.strip()
+        else:
+            # Simplified format: [ACTION=CarrierID]
+            command_id = ''  # No command ID in this format
+            carrier_id = first_id
         
         # Parse timestamp
         try:
@@ -185,14 +215,15 @@ class MCSLogParser(GenericTemplateLogParser):
             SignalType.STRING
         ))
         
-        # Add CommandID as a signal
-        entries.append((
-            device_id,
-            sys.intern("_CommandID"),
-            timestamp,
-            command_id,
-            SignalType.STRING
-        ))
+        # Add CommandID as a signal (only if present)
+        if command_id:
+            entries.append((
+                device_id,
+                sys.intern("_CommandID"),
+                timestamp,
+                command_id,
+                SignalType.STRING
+            ))
         
         # Parse all [Key=Value] pairs
         for key, value in self.KV_PAIR_RE.findall(kvpairs_str):
@@ -201,6 +232,9 @@ class MCSLogParser(GenericTemplateLogParser):
             
             if not key:
                 continue
+            
+            # Apply signal name mapping to normalize alternative names
+            key = self.SIGNAL_NAME_MAP.get(key, key)
             
             # Skip empty values or "None" for cleaner visualization
             if value == '' or value == 'None':
