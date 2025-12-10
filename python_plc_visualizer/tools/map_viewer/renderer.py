@@ -246,6 +246,36 @@ class MapRenderer(QGraphicsView):
             self._remove_text_overlay(unit_id)
 
         return changed
+    
+    def highlight_unit(self, unit_id: str) -> bool:
+        """Highlight a unit by its UnitId and center the view on it.
+        
+        Args:
+            unit_id: The UnitId to highlight
+            
+        Returns:
+            True if unit was found and highlighted, False otherwise
+        """
+        items = self._items_by_unit.get(unit_id)
+        if not items:
+            return False
+        
+        # Clear previous selection
+        if self.selected_item:
+            self._unhighlight(self.selected_item)
+        
+        # Highlight the first item for this unit
+        first_item = items[0]
+        self._highlight(first_item)
+        self.selected_item = first_item
+        
+        # Show info box
+        self._show_info(first_item)
+        
+        # Center view on the item
+        self.centerOn(first_item)
+        
+        return True
 
     # ---------- Internals ----------
     def _index_unit_item(self, unit_id: Optional[str], item):
@@ -254,7 +284,14 @@ class MapRenderer(QGraphicsView):
         self._items_by_unit.setdefault(unit_id, []).append(item)
 
     def _add_or_update_text_overlay(self, unit_id: str, rect_item, character: str, text_color: QColor):
-        """Create or update a text overlay for a rectangle item."""
+        """Create or update a text overlay for a rectangle item.
+        
+        Args:
+            unit_id: The unit ID
+            rect_item: The rectangle item to overlay text on
+            character: The text to display (may be truncated if too long)
+            text_color: The color of the text
+        """
         # Get rectangle bounds
         rect = rect_item.rect()
         rect_x = rect.x()
@@ -264,15 +301,41 @@ class MapRenderer(QGraphicsView):
 
         # Remove existing overlay if any
         self._remove_text_overlay(unit_id)
-
-        # Create text item
-        text_item = self.scene.addText(character)
-        text_item.setDefaultTextColor(text_color)
-
-        # Scale font to fit rectangle (use 80% of smaller dimension)
-        target_size = min(rect_width, rect_height) * 0.8
-        font = QFont("Arial", 12)  # Start with a base size
+        
+        # Truncate from start if text is too long (prioritize unique suffix)
+        display_text = character
+        font = QFont("Arial", 12)
         font.setBold(True)
+        
+        # Create temporary text item to measure
+        temp_text = self.scene.addText(display_text)
+        temp_text.setFont(font)
+        temp_bounds = temp_text.boundingRect()
+        self.scene.removeItem(temp_text)
+        
+        # Target size is 80% of smaller dimension
+        target_size = min(rect_width, rect_height) * 0.8
+        
+        # Check if we need to truncate
+        # We'll use a simple approach: if text is too wide even when scaled, truncate from start
+        max_chars = len(display_text)
+        while max_chars > 4 and temp_bounds.width() > 0:
+            scale_factor = target_size / max(temp_bounds.width(), temp_bounds.height())
+            # If scaled width would still be larger than available width, truncate
+            if temp_bounds.width() * scale_factor > rect_width * 0.9:
+                # Truncate from start, keep suffix
+                max_chars -= 1
+                display_text = "..." + character[-max_chars:]
+                temp_text = self.scene.addText(display_text)
+                temp_text.setFont(font)
+                temp_bounds = temp_text.boundingRect()
+                self.scene.removeItem(temp_text)
+            else:
+                break
+
+        # Create final text item
+        text_item = self.scene.addText(display_text)
+        text_item.setDefaultTextColor(text_color)
         text_item.setFont(font)
 
         # Measure and scale
