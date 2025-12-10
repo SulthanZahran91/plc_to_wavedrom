@@ -72,6 +72,9 @@ class MapViewerView(QWidget):
         self._end_time: Optional[datetime] = None
         self._playback_timer = QTimer(self)
         self._playback_timer.timeout.connect(self._on_playback_tick)
+        
+        # Carrier follow state
+        self._following_carrier_id: Optional[str] = None
 
         # Build signal map by device_id and signal name
         if self._signal_data_list:
@@ -305,12 +308,13 @@ class MapViewerView(QWidget):
         self.txt_search_carrier = QLineEdit()
         self.txt_search_carrier.setPlaceholderText("Enter CarrierID...")
         self.txt_search_carrier.setMinimumWidth(200)
-        self.txt_search_carrier.returnPressed.connect(self._on_search_carrier)
+        self.txt_search_carrier.returnPressed.connect(self._on_follow_carrier)
         layout.addWidget(self.txt_search_carrier)
         
-        btn_search = QPushButton("Find")
-        btn_search.clicked.connect(self._on_search_carrier)
-        layout.addWidget(btn_search)
+        # Follow/Stop Follow toggle button
+        self.btn_follow_carrier = QPushButton("Follow")
+        self.btn_follow_carrier.clicked.connect(self._on_follow_toggle)
+        layout.addWidget(self.btn_follow_carrier)
         
         return panel
     
@@ -343,15 +347,32 @@ class MapViewerView(QWidget):
         self.state_model.enable_carrier_tracking = enabled
         
         # Update UI state
-        self.txt_search_carrier.setEnabled(enabled)
+        # If tracking is disabled, stop following and disable search input
+        if not enabled:
+            self._stop_following()
+            self.txt_search_carrier.setEnabled(False)
+            self.btn_follow_carrier.setEnabled(False)
+        else:
+            # If tracking is enabled, enable search input unless already following
+            self.txt_search_carrier.setEnabled(not self._following_carrier_id)
+            self.btn_follow_carrier.setEnabled(True)
         
         if enabled:
             print("[MapViewer] Carrier tracking enabled")
         else:
             print("[MapViewer] Carrier tracking disabled")
     
-    def _on_search_carrier(self):
-        """Handle carrier search request."""
+    def _on_follow_toggle(self):
+        """Handle follow/stop follow button click."""
+        if self._following_carrier_id:
+            # Currently following - stop following
+            self._stop_following()
+        else:
+            # Not following - start following
+            self._on_follow_carrier()
+
+    def _on_follow_carrier(self):
+        """Start following a carrier."""
         if not self.state_model:
             QMessageBox.warning(
                 self,
@@ -364,7 +385,7 @@ class MapViewerView(QWidget):
             QMessageBox.information(
                 self,
                 "Carrier Tracking Disabled",
-                "Please enable 'Track Carriers' to search for carriers."
+                "Please enable 'Track Carriers' to follow carriers."
             )
             return
         
@@ -373,7 +394,7 @@ class MapViewerView(QWidget):
             QMessageBox.information(
                 self,
                 "No Carrier ID",
-                "Please enter a CarrierID to search."
+                "Please enter a CarrierID to follow."
             )
             return
         
@@ -381,10 +402,13 @@ class MapViewerView(QWidget):
         unit_id = self.state_model.get_carrier_location(carrier_id)
         
         if unit_id:
-            # Highlight the unit
+            # Highlight the unit and start following
             success = self.renderer.highlight_unit(unit_id)
             if success:
-                print(f"[MapViewer] Found carrier '{carrier_id}' at unit '{unit_id}'")
+                self._following_carrier_id = carrier_id
+                self.btn_follow_carrier.setText("Stop Follow")
+                self.txt_search_carrier.setEnabled(False)  # Disable input while following
+                print(f"[MapViewer] Following carrier '{carrier_id}' at unit '{unit_id}'")
             else:
                 QMessageBox.warning(
                     self,
@@ -398,6 +422,24 @@ class MapViewerView(QWidget):
                 f"CarrierID '{carrier_id}' not found in current data.\n\n"
                 f"Make sure the carrier has a CurrentLocation signal and is within the current time range."
             )
+
+    def _stop_following(self):
+        """Stop following the current carrier."""
+        if self._following_carrier_id:
+            print(f"[MapViewer] Stopped following carrier '{self._following_carrier_id}'")
+        self._following_carrier_id = None
+        self.btn_follow_carrier.setText("Follow")
+        # Re-enable search input only if carrier tracking is enabled
+        self.txt_search_carrier.setEnabled(self.state_model.enable_carrier_tracking if self.state_model else False)
+
+    def _update_followed_carrier(self):
+        """Update the highlight for the followed carrier (called during playback)."""
+        if not self._following_carrier_id or not self.state_model:
+            return
+        
+        unit_id = self.state_model.get_carrier_location(self._following_carrier_id)
+        if unit_id:
+            self.renderer.highlight_unit(unit_id)
 
     def set_signal_data(self, signal_data_list: List[SignalData]):
         """Update the signal data from the main window.
@@ -506,6 +548,9 @@ class MapViewerView(QWidget):
                     timestamp=current_time.timestamp()
                 )
                 self.state_model.on_signal(event)
+        
+        # Update followed carrier position if following
+        self._update_followed_carrier()
 
     def _get_signal_value_at_time(self, signal_data: SignalData, target_time: datetime):
         """Get the signal value at a specific time.
