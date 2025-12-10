@@ -112,40 +112,50 @@ class UnitStateModel(QObject):
         
         # Clear old location if carrier moved
         if old_unit_id and old_unit_id != new_unit_id:
-            # Check if there are other carriers at the old unit
-            other_carriers = [cid for cid in self._carrier_locations 
-                            if cid != carrier_id and self._carrier_locations[cid] == old_unit_id]
-            
-            if not other_carriers:
-                # No other carriers, clear the text overlay
-                self._text_overlays[old_unit_id] = None
-                self.stateChanged.emit(
-                    old_unit_id,
-                    self._block_colors.get(old_unit_id),
-                    self._arrow_colors.get(old_unit_id),
-                    None
-                )
-            # If there are other carriers, we keep the overlay (could show count or first carrier)
+            # Update the old unit's display (will show remaining carriers or clear)
+            self._update_unit_display(old_unit_id)
         
         # Update carrier location
         if new_unit_id:
             self._carrier_locations[carrier_id] = new_unit_id
-            
-            # Set text overlay with CarrierID (use black text on colored background)
-            text_info = (carrier_id, QColor(0, 0, 0))  # Black text
-            self._text_overlays[new_unit_id] = text_info
-            
-            self.stateChanged.emit(
-                new_unit_id,
-                self._block_colors.get(new_unit_id),
-                self._arrow_colors.get(new_unit_id),
-                text_info
-            )
+            # Update the new unit's display
+            self._update_unit_display(new_unit_id)
         else:
-            # Carrier removed/cleared
+            # Carrier removed/cleared (null or empty location)
             if carrier_id in self._carrier_locations:
+                # Get old location before removing
+                removed_unit_id = self._carrier_locations[carrier_id]
                 del self._carrier_locations[carrier_id]
-
+                # Clear the text overlay from the old location
+                self._update_unit_display(removed_unit_id)
+    
+    def _update_unit_display(self, unit_id: str):
+        """Update the text overlay for a unit based on carrier count.
+        
+        Args:
+            unit_id: The unit to update display for
+        """
+        carriers_at_unit = self.get_carriers_at_unit(unit_id)
+        
+        if not carriers_at_unit:
+            # No carriers, clear the overlay
+            text_info = None
+        elif len(carriers_at_unit) == 1:
+            # Single carrier, show the carrier ID
+            text_info = (carriers_at_unit[0], QColor(0, 0, 0))  # Black text
+        else:
+            # Multiple carriers, show count
+            count_text = f"{len(carriers_at_unit)}x"
+            text_info = (count_text, QColor(0, 0, 0))  # Black text
+        
+        # Update internal state and emit signal
+        self._text_overlays[unit_id] = text_info
+        self.stateChanged.emit(
+            unit_id,
+            self._block_colors.get(unit_id),
+            self._arrow_colors.get(unit_id),
+            text_info
+        )
     def block_color_of(self, unit_id: str) -> Optional[QColor]:
         return self._block_colors.get(unit_id)
     

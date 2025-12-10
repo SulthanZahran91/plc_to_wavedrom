@@ -172,6 +172,9 @@ class MapViewerView(QWidget):
             # Create state model
             self.state_model = UnitStateModel(device_map, color_policy)
             self.state_model.stateChanged.connect(self.renderer.update_rect_color_by_unit)
+            
+            # Connect state model to renderer for carrier info display
+            self.renderer.set_state_model(self.state_model)
 
             print(f"[MapViewer] Loaded map from {xml_path}")
             print(f"[MapViewer] Loaded {len(objects)} objects from XML")
@@ -317,6 +320,26 @@ class MapViewerView(QWidget):
             return
         
         enabled = state == Qt.CheckState.Checked.value
+        
+        # Validate that carrier tracking data exists before enabling
+        if enabled:
+            has_location_data = any(
+                '::CurrentLocation' in key 
+                for key in self._signal_data_map.keys()
+            )
+            
+            if not has_location_data:
+                QMessageBox.warning(
+                    self,
+                    "No Carrier Data Available",
+                    "Carrier tracking requires MCS/AMHS log format with CurrentLocation signals.\n\n"
+                    "The currently loaded log does not contain carrier tracking data.\n"
+                    "Please load an MCS/AMHS format log to use this feature."
+                )
+                # Uncheck the checkbox
+                self.chk_track_carriers.setChecked(False)
+                return
+        
         self.state_model.enable_carrier_tracking = enabled
         
         # Update UI state
