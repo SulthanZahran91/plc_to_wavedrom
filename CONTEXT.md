@@ -135,6 +135,7 @@ Data flows from the entry point through parsing to the UI as follows:
 *   **Temporary Files:** Use `/tmp` for temporary storage.
 *   **Carrier Tracking:** Map Viewer feature to display CarrierID at CurrentLocation (disabled by default, MCS/AMHS logs only). 
     *   **Display Logic:** Single carrier shows CarrierID (truncated from start for long IDs); multiple carriers show count (e.g., "2x", "3x").
+    *   **Color Gradient:** Unit background color changes based on carrier count: 0=default, 1=green (#90EE90), 2=yellow (#FFD700), 3=orange (#FFA500), 4+=red gradient.
     *   **Info Box:** Left-clicking a unit shows detailed carrier list and count in the info panel.
     *   **Edge Cases:** Validates CurrentLocation signals exist before enabling. Handles null/empty locations by clearing overlays. Updates count when carriers move.
-    *   **Implementation:** `state_model._update_unit_display()` manages overlay logic; `renderer._show_info()` displays carrier details.
+    *   **Implementation:** `state_model._get_carrier_count_color()` determines block color; `state_model._update_unit_display()` manages overlay and color logic; `renderer._show_info()` displays carrier details.
